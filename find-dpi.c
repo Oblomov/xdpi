@@ -6,16 +6,8 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrandr.h>
 
-int main(int argc, char *argv[])
+void show_dpi_info(Display *disp)
 {
-	puts("*** Resolution and dot pitch information exposed by X11 ***");
-
-	Display *disp = XOpenDisplay(getenv("DISPLAY"));
-	if (!disp) {
-		fputs("Could not open X display\n", stderr);
-		return 1;
-	}
-
 	int num_screens = ScreenCount(disp);
 
 	/* Iterate over all screens, and show X11 and XRandR information */
@@ -124,6 +116,19 @@ int main(int argc, char *argv[])
 			printf("\tXft.dpi: %s\n", dpi);
 		}
 	}
+}
+
+int main(int argc, char *argv[])
+{
+	puts("*** Resolution and dot pitch information exposed by X11 ***");
+
+	Display *disp = XOpenDisplay(getenv("DISPLAY"));
+	if (!disp) {
+		fputs("Could not open X display\n", stderr);
+		return 1;
+	}
+
+	show_dpi_info(disp);
 
 	return 0;
 }

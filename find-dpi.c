@@ -6,7 +6,7 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrandr.h>
 
-void show_dpi_info(Display *disp)
+void do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
 
@@ -118,17 +118,24 @@ void show_dpi_info(Display *disp)
 	}
 }
 
-int main(int argc, char *argv[])
+int xlib_dpi(void)
 {
-	puts("*** Resolution and dot pitch information exposed by X11 ***");
-
 	Display *disp = XOpenDisplay(getenv("DISPLAY"));
 	if (!disp) {
 		fputs("Could not open X display\n", stderr);
 		return 1;
 	}
 
-	show_dpi_info(disp);
+	do_xlib_dpi(disp);
+
+	XCloseDisply(disp);
 
 	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	puts("*** Resolution and dot pitch information exposed by X11 ***");
+
+	xlib_dpi();
 }

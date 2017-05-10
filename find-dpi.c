@@ -6,6 +6,23 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrandr.h>
 
+#include <xcb/xproto.h>
+#include <xcb/xinerama.h>
+#include <xcb/randr.h>
+
+void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
+{
+	int xdpi = (int)round(width*25.4/mmw);
+	int ydpi = (int)round(height*25.4/mmh);
+
+	int xdpcm = (int)round(width*10/mmw);
+	int ydpcm = (int)round(height*10/mmh);
+
+	printf("Screen %d: %dx%d pixels, %dx%d mm: %dx%d dpi, %dx%d dpcm\n", i,
+		width, height, mmw, mmh,
+		xdpi, ydpi, xdpcm, ydpcm);
+}
+
 void do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
@@ -22,15 +39,7 @@ void do_xlib_dpi(Display *disp)
 			int mmw = WidthMMOfScreen(screen);
 			int mmh = HeightMMOfScreen(screen);
 
-			int xdpi = (int)round(width*25.4/mmw);
-			int ydpi = (int)round(height*25.4/mmh);
-
-			int xdpcm = (int)round(width*10/mmw);
-			int ydpcm = (int)round(height*10/mmh);
-
-			printf("Screen %d: %dx%d pixels, %dx%d mm: %dx%d dpi, %dx%d dpcm\n", i,
-				width, height, mmw, mmh,
-				xdpi, ydpi, xdpcm, ydpcm);
+			print_dpi_screen(i, width, height, mmw, mmh);
 		}
 
 		/* XRandR information */
@@ -103,7 +112,7 @@ void do_xlib_dpi(Display *disp)
 		XFree(xines);
 	}
 
-	/* XRandR */
+	/* Xft.dpi */
 
 	for (int i = 0; i < num_screens; ++i) {
 
@@ -126,11 +135,89 @@ int xlib_dpi(void)
 		return 1;
 	}
 
+	puts("** Xlib interfaces");
+
 	do_xlib_dpi(disp);
 
-	XCloseDisply(disp);
+	XCloseDisplay(disp);
 
 	return 0;
+}
+
+void do_xcb_dpi(xcb_connection_t *conn)
+{
+	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
+	int count, i;
+
+	/* Collect information first, then show. This should make the async
+	 * requests such as those for RANDR faster
+	 */
+	xcb_screen_t *screen_data =
+		malloc(iter.rem*sizeof(*screen_data));
+	xcb_randr_get_screen_resources_cookie_t *rr_cookie =
+		malloc(iter.rem*sizeof(*rr_cookie));
+	xcb_randr_get_screen_resources_reply_t **rr_res =
+		calloc(iter.rem, sizeof(*rr_res));
+
+	if (!screen_data || !rr_cookie || !rr_res) {
+		fputs("could not allocate memory for screen data\n", stderr);
+		goto cleanup;
+	}
+
+	/* Query */
+	for (count = 0 ; iter.rem; ++count, xcb_screen_next(&iter)) {
+		screen_data[count] = *iter.data;
+		rr_cookie[count] = xcb_randr_get_screen_resources(conn,
+			iter.data->root);
+	}
+
+	/* Get the actual data */
+	for (i = 0; i < count; ++i) {
+		xcb_generic_error_t *err = NULL;
+		rr_res[count] = xcb_randr_get_screen_resources_reply(conn,
+			rr_cookie[count], &err);
+		if (err) {
+			fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
+				err->error_code);
+			count = i;
+			free(err);
+		}
+	}
+
+	/* Show it */
+	for (i = 0; i < count; ++i) {
+		const xcb_screen_t *screen = screen_data + i;
+		/* Standard X11 information */
+		{
+			print_dpi_screen(i,
+				screen->width_in_pixels, screen->height_in_pixels,
+				screen->width_in_millimeters, screen->height_in_millimeters);
+		}
+	}
+cleanup:
+	free(screen_data);
+	free(rr_cookie);
+	for (i = 0; i < count; ++i)
+		free(rr_res[i]);
+	free(rr_res);
+
+
+}
+
+int xcb_dpi(void)
+{
+	int ret = 0;
+	xcb_connection_t *conn = xcb_connect(NULL, NULL);
+	if ((ret = xcb_connection_has_error(conn))) {
+		fputs("XCB connection error\n", stderr);
+	}
+
+	puts("** xcb interfaces");
+
+	do_xcb_dpi(conn);
+
+	xcb_disconnect(conn);
+	return ret;
 }
 
 int main(int argc, char *argv[])
@@ -138,4 +225,8 @@ int main(int argc, char *argv[])
 	puts("*** Resolution and dot pitch information exposed by X11 ***");
 
 	xlib_dpi();
+
+	xcb_dpi();
+
+	puts("*** Done ***");
 }

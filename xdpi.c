@@ -145,7 +145,7 @@ int xlib_dpi(void)
 void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
-	int count, i;
+	int count = 0, i;
 
 	/* Collect information first, then show. This should make the async
 	 * requests such as those for RANDR faster

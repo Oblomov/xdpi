@@ -177,7 +177,7 @@ void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_randr_get_output_info_reply_t ***rr_out =
 		calloc(iter.rem, sizeof(*rr_out));
 
-	if (!screen_data || !rr_cookie || !rr_res) {
+	if (!screen_data || !rr_cookie || !rr_res || !rr_crtc || !rr_crtc_info || !rr_out) {
 		fputs("could not allocate memory for screen data\n", stderr);
 		goto cleanup;
 	}
@@ -198,6 +198,7 @@ void do_xcb_dpi(xcb_connection_t *conn)
 			fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
 				err->error_code);
 			free(err);
+			err = NULL;
 			continue;
 		}
 
@@ -214,6 +215,11 @@ void do_xcb_dpi(xcb_connection_t *conn)
 		xcb_randr_get_crtc_info_cookie_t *crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
 		xcb_randr_get_output_info_cookie_t *output_cookie = calloc(num_outputs, sizeof(xcb_randr_get_output_info_cookie_t));
 
+		if (!crtc_cookie || !output_cookie) {
+			fputs("could not allocate memory for RANDR request cookies\n", stderr);
+			break;
+		}
+
 		/* CRTC requests */
 		for (j = 0; j < num_crtcs; ++j)
 			crtc_cookie[j] = xcb_randr_get_crtc_info(conn, rr_crtc[i][j],  0);
@@ -226,14 +232,35 @@ void do_xcb_dpi(xcb_connection_t *conn)
 		rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
 		rr_out[i] = calloc(num_outputs, sizeof(xcb_randr_get_output_info_reply_t*));
 
+		if (!rr_crtc_info[i] || !rr_out[i]) {
+			fputs("could not allocate memory for RANDR data\n", stderr);
+			break;
+		}
+
 		/* Actually get the replies. Might even want to move this to the
 		 * presentation loop below for even more latency covering */
 		/* TODO FIXME error management */
-		for (j = 0; j < num_crtcs; ++j)
-			rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], NULL);
+		for (j = 0; j < num_crtcs; ++j) {
+			rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], &err);
+			if (err) {
+				fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
+					err->error_code);
+				free(err);
+				err = NULL;
+				continue;
+			}
+		}
 
-		for (j = 0; j < num_outputs; ++j)
-			rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], NULL);
+		for (j = 0; j < num_outputs; ++j) {
+			rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], &err);
+			if (err) {
+				fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
+					err->error_code);
+				free(err);
+				err = NULL;
+				continue;
+			}
+		}
 
 		free(output_cookie);
 		free(crtc_cookie);
@@ -287,6 +314,7 @@ void do_xcb_dpi(xcb_connection_t *conn)
 			}
 		}
 	}
+
 cleanup:
 	free(screen_data);
 	free(rr_cookie);

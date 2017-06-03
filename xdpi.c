@@ -80,7 +80,7 @@ void do_xlib_dpi(Display *disp)
 				int rrxdpcm = (int)round(w*10/mmw);
 				int rrydpcm = (int)round(h*10/mmh);
 
-				printf("\t\t%s: %dx%d pixels, (%s) %dx%d mm: %dx%d dpi, %dx%d dpcm\n", rro->name,
+				printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: %dx%d dpi, %dx%d dpcm\n", rro->name,
 					w, h,
 					(rotated ? "R" : "U"), mmw, mmh,
 					rrxdpi, rrydpi,
@@ -115,8 +115,6 @@ void do_xlib_dpi(Display *disp)
 	/* Xft.dpi */
 
 	for (int i = 0; i < num_screens; ++i) {
-
-		int shown = 0;
 
 		/* Xft.dpi */
 		const char *dpi = XGetDefault(disp, "Xft", "dpi");
@@ -222,6 +220,10 @@ int xcb_dpi(void)
 
 int main(int argc, char *argv[])
 {
+	/* TODO support CLI options for help or output format selection */
+	(void)argc;
+	(void)argv;
+
 	puts("*** Resolution and dot pitch information exposed by X11 ***");
 
 	xlib_dpi();

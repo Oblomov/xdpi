@@ -1,3 +1,9 @@
+/* X11 DPI information retrieval.
+ * Copyright (C) 2017 Giuseppe Bilotta <giuseppe.bilotta@gmail.com>
+ * Licensed under the terms of the Mozilla Public License, version 2.
+ * See LICENSE.txt for details.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

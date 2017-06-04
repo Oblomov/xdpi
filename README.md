@@ -23,3 +23,10 @@ Simply run:
 
 You will need a compiler supporting C99, and development files for Xlib,
 the XRANDR and Xinerama extensions, xcb, xcb-xrandr and xcb-xinerama.
+
+## Why both Xlib and xcb?
+
+Mostly, because I wanted to have a look at xcb and how different it was
+from Xlib. My usage is probably imperfect, but it does show how much
+more complex fully taking advantage of the asynchronous nature of the
+X11 protocol (which is what xcb is all about) is.

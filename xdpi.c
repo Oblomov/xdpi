@@ -159,13 +159,16 @@ int xlib_dpi(void)
 void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
+	xcb_xinerama_is_active_cookie_t xine_active_cookie = xcb_xinerama_is_active(conn);
+
 	int count = 0, i, j;
 
 	/* Collect information first, then show. This should make the async
-	 * requests such as those for RANDR faster
+	 * requests such as those for RANDR faster.
 	 */
 	xcb_screen_t *screen_data =
 		malloc(iter.rem*sizeof(*screen_data));
+
 	xcb_randr_get_screen_resources_cookie_t *rr_cookie =
 		malloc(iter.rem*sizeof(*rr_cookie));
 	xcb_randr_get_screen_resources_reply_t **rr_res =
@@ -177,21 +180,61 @@ void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_randr_get_output_info_reply_t ***rr_out =
 		calloc(iter.rem, sizeof(*rr_out));
 
-	if (!screen_data || !rr_cookie || !rr_res || !rr_crtc || !rr_crtc_info || !rr_out) {
+	xcb_xinerama_get_screen_count_cookie_t *xine_cookie =
+		malloc(iter.rem*sizeof(*xine_cookie));
+	xcb_xinerama_get_screen_count_reply_t **xine_count =
+		calloc(iter.rem, sizeof(*xine_count));
+	xcb_xinerama_get_screen_size_reply_t ***xine_size =
+		calloc(iter.rem, sizeof(*xine_size));
+
+	xcb_window_t *roots = malloc(iter.rem*sizeof(xcb_window_t));
+
+	xcb_generic_error_t *err = NULL;
+
+	if (!screen_data || !rr_cookie || !rr_res || !rr_crtc || !rr_crtc_info || !rr_out
+		|| !xine_cookie || ! xine_count) {
 		fputs("could not allocate memory for screen data\n", stderr);
 		goto cleanup;
 	}
+
+	/* Find if Xinerama is enabled */
+	xcb_xinerama_is_active_reply_t *xine_active_reply = xcb_xinerama_is_active_reply
+		(conn, xine_active_cookie, &err);
+	if (err) {
+		fprintf(stderr, "error getting Xinerama status -- %d\n", err->error_code);
+		free(err);
+		err = NULL;
+		free(xine_active_reply);
+		xine_active_reply = NULL;
+	}
+
+	int xine_active = (xine_active_reply && xine_active_reply->state > 0);
 
 	/* Query */
 	for (count = 0 ; iter.rem; ++count, xcb_screen_next(&iter)) {
 		screen_data[count] = *iter.data;
 		rr_cookie[count] = xcb_randr_get_screen_resources(conn,
 			iter.data->root);
+		if (xine_active)
+			xine_cookie[count] = xcb_xinerama_get_screen_count(conn,
+				iter.data->root);
+		roots[count] = iter.data->root;
 	}
 
-	/* Get the actual XRANDR data */
+	/* Get the actual RANDR and Xinerama data */
 	for (i = 0; i < count; ++i) {
-		xcb_generic_error_t *err = NULL;
+		int skip_randr = 0;
+		int skip_xine = !xine_active;
+
+		int num_crtcs = 0;
+		int num_outputs = 0;
+		const xcb_randr_output_t *output = NULL;
+
+		xcb_randr_get_crtc_info_cookie_t *crtc_cookie = NULL;
+		xcb_randr_get_output_info_cookie_t *output_cookie = NULL;
+		xcb_xinerama_get_screen_size_cookie_t *xine_size_cookie = NULL;
+
+		/* RANDR check */
 		rr_res[i] = xcb_randr_get_screen_resources_reply(conn,
 			rr_cookie[i], &err);
 		if (err) {
@@ -199,71 +242,121 @@ void do_xcb_dpi(xcb_connection_t *conn)
 				err->error_code);
 			free(err);
 			err = NULL;
-			continue;
+			skip_randr = 1;
 		}
 
-		/* Get number of CRTCs and outputs */
-		int num_crtcs = xcb_randr_get_screen_resources_crtcs_length(rr_res[i]);
-		int num_outputs = xcb_randr_get_screen_resources_outputs_length(rr_res[i]);
-
-		/* Get the first crtc and output. We store the CRTC to match it to the output
-		 * later on. NOTE that this is not for us to free. */
-		rr_crtc[i] = xcb_randr_get_screen_resources_crtcs(rr_res[i]);
-		const xcb_randr_output_t * output = xcb_randr_get_screen_resources_outputs(rr_res[i]);
-
-		/* Cookies for the requests */
-		xcb_randr_get_crtc_info_cookie_t *crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
-		xcb_randr_get_output_info_cookie_t *output_cookie = calloc(num_outputs, sizeof(xcb_randr_get_output_info_cookie_t));
-
-		if (!crtc_cookie || !output_cookie) {
-			fputs("could not allocate memory for RANDR request cookies\n", stderr);
-			break;
-		}
-
-		/* CRTC requests */
-		for (j = 0; j < num_crtcs; ++j)
-			crtc_cookie[j] = xcb_randr_get_crtc_info(conn, rr_crtc[i][j],  0);
-
-		/* Output requests */
-		for (j = 0; j < num_outputs; ++j)
-			output_cookie[j] = xcb_randr_get_output_info(conn, output[j],  0);
-
-		/* Room for the replies */
-		rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
-		rr_out[i] = calloc(num_outputs, sizeof(xcb_randr_get_output_info_reply_t*));
-
-		if (!rr_crtc_info[i] || !rr_out[i]) {
-			fputs("could not allocate memory for RANDR data\n", stderr);
-			break;
-		}
-
-		/* Actually get the replies. Might even want to move this to the
-		 * presentation loop below for even more latency covering */
-		/* TODO FIXME error management */
-		for (j = 0; j < num_crtcs; ++j) {
-			rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], &err);
+		if (xine_active) {
+			xine_count[i] = xcb_xinerama_get_screen_count_reply(conn,
+				xine_cookie[i], &err);
 			if (err) {
-				fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
+				fprintf(stderr, "error getting screen count for screen %d -- %d\n", i,
 					err->error_code);
 				free(err);
 				err = NULL;
-				continue;
+				skip_xine = 1;
+			} else {
+				if (xine_count[i]->screen_count < 1)
+					skip_xine = 1;
 			}
 		}
 
-		for (j = 0; j < num_outputs; ++j) {
-			rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], &err);
-			if (err) {
-				fprintf(stderr, "error getting resources for screen %d -- %d\n", i,
-					err->error_code);
-				free(err);
-				err = NULL;
-				continue;
+		/* Query per-screen CRTCs and outputs */
+		if (!skip_randr) {
+			num_crtcs = xcb_randr_get_screen_resources_crtcs_length(rr_res[i]);
+			num_outputs = xcb_randr_get_screen_resources_outputs_length(rr_res[i]);
+
+			/* Get the first crtc and output. We store the CRTC to match it to the output
+			 * later on. NOTE that this is not for us to free. */
+			rr_crtc[i] = xcb_randr_get_screen_resources_crtcs(rr_res[i]);
+			output = xcb_randr_get_screen_resources_outputs(rr_res[i]);
+
+			/* Cookies for the requests */
+			crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
+			output_cookie = calloc(num_outputs, sizeof(xcb_randr_get_output_info_cookie_t));
+
+			if (!crtc_cookie || !output_cookie) {
+				fputs("could not allocate memory for RANDR request cookies\n", stderr);
+				break;
+			}
+
+			/* CRTC requests */
+			for (j = 0; j < num_crtcs; ++j)
+				crtc_cookie[j] = xcb_randr_get_crtc_info(conn, rr_crtc[i][j],  0);
+
+			/* Output requests */
+			for (j = 0; j < num_outputs; ++j)
+				output_cookie[j] = xcb_randr_get_output_info(conn, output[j],  0);
+
+			/* Room for the replies */
+			rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
+			rr_out[i] = calloc(num_outputs, sizeof(xcb_randr_get_output_info_reply_t*));
+
+			if (!rr_crtc_info[i] || !rr_out[i]) {
+				fputs("could not allocate memory for RANDR data\n", stderr);
+				break;
 			}
 		}
 
-		free(output_cookie);
-		free(crtc_cookie);
+		/* Query per-screen Xinerama screen sizes */
+		if (!skip_xine) {
+			uint8_t xines = xine_count[i]->screen_count;
+			xine_size_cookie = calloc(xines, sizeof(xcb_xinerama_get_screen_size_cookie_t));
+			if (!xine_size_cookie) {
+				fputs("could not allocate memory for Xinerama request cookies\n", stderr);
+				break;
+			}
+			for (int j = 0; j < xines; ++j)
+				xine_size_cookie[j] = xcb_xinerama_get_screen_size(conn, roots[i], j);
+
+			xine_size[i] = calloc(xines, sizeof(xcb_xinerama_get_screen_size_reply_t*));
+			if (!xine_size[i]) {
+				fputs("could not allocate memory for Xinerama data\n", stderr);
+				break;
+			}
+		}
+
+		if (!skip_randr) {
+			/* Actually get the replies. */
+			for (j = 0; j < num_crtcs; ++j) {
+				rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], &err);
+				if (err) {
+					fprintf(stderr, "error getting info for CRTC %d on screen %d -- %d\n", j, i,
+						err->error_code);
+					free(err);
+					err = NULL;
+					continue;
+				}
+			}
+
+			for (j = 0; j < num_outputs; ++j) {
+				rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], &err);
+				if (err) {
+					fprintf(stderr, "error getting info for output %d on screen %d -- %d\n", j, i,
+						err->error_code);
+					free(err);
+					err = NULL;
+					continue;
+				}
+			}
+
+			free(output_cookie);
+			free(crtc_cookie);
+		}
+
+		if (!skip_xine) {
+			uint8_t xines = xine_count[i]->screen_count;
+			for (int j = 0; j < xines; ++j) {
+				xine_size[i][j] = xcb_xinerama_get_screen_size_reply(conn,
+					xine_size_cookie[j], &err);
+				if (err) {
+					fprintf(stderr, "error getting size of Xinerama screen %d on X11 Screen %d -- %d\n", j, i,
+						err->error_code);
+					free(err);
+					err = NULL;
+					skip_xine = 1;
+				}
+			}
+		}
 
 	}
 
@@ -313,6 +406,18 @@ void do_xcb_dpi(xcb_connection_t *conn)
 				}
 			}
 		}
+		/* Xinerama info */
+		const uint8_t xines = xine_count[i]->screen_count;
+		if (xines < 1)
+			continue;
+		puts("Xinerama screens:");
+		for (int j = 0; j < xines; ++j) {
+			const xcb_xinerama_get_screen_size_reply_t *xi = xine_size[i][j];
+			printf("\t%u: %ux%u pixels, no dpi information\n",
+				xi->screen,
+				xi->width,
+				xi->height);
+		}
 	}
 
 cleanup:
@@ -320,18 +425,24 @@ cleanup:
 	free(rr_cookie);
 	for (i = 0; i < count; ++i) {
 		const xcb_randr_get_screen_resources_reply_t *rr = rr_res[i];
+		const uint8_t xines = xine_count[i]->screen_count;
 		for (int o = 0; o < rr->num_outputs; ++o)
 			free(rr_out[i][o]);
 		for (int c = 0; c < rr->num_crtcs; ++c)
 			free(rr_crtc_info[i][c]);
+		for (int j = 0; j < xines; ++j)
+			free(xine_size[i][j]);
 		free(rr_out[i]);
 		free(rr_crtc_info[i]);
 		free(rr_res[i]);
+		free(xine_size[i]);
+		free(xine_count[i]);
 	}
 	free(rr_out);
 	free(rr_crtc_info);
 	free(rr_crtc);
 	free(rr_res);
+	free(xine_count);
 
 
 }

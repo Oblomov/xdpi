@@ -24,6 +24,11 @@ Simply run:
 You will need a compiler supporting C99, and development files for Xlib,
 the XRANDR and Xinerama extensions, xcb, xcb-xrandr and xcb-xinerama.
 
+If you do not have xcb or your xcb version is too old, you can compile
+without xcb support by running
+
+    make xcb=0
+
 ## Why both Xlib and xcb?
 
 Mostly, because I wanted to have a look at xcb and how different it was

@@ -13,9 +13,11 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrandr.h>
 
+#if WITH_XCB
 #include <xcb/xproto.h>
 #include <xcb/xinerama.h>
 #include <xcb/randr.h>
+#endif
 
 void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 {
@@ -156,6 +158,7 @@ int xlib_dpi(void)
 	return 0;
 }
 
+#if WITH_XCB
 void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
@@ -409,6 +412,7 @@ int xcb_dpi(void)
 	xcb_disconnect(conn);
 	return ret;
 }
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -420,7 +424,9 @@ int main(int argc, char *argv[])
 
 	xlib_dpi();
 
+#if WITH_XCB
 	xcb_dpi();
+#endif
 
 	puts("*** Done ***");
 }

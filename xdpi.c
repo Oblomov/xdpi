@@ -27,9 +27,12 @@ void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 	int xdpcm = (int)round(width*10/mmw);
 	int ydpcm = (int)round(height*10/mmh);
 
-	printf("Screen %d: %dx%d pixels, %dx%d mm: %dx%d dpi, %dx%d dpcm\n", i,
+	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(width*width+height*height);
+
+	printf("Screen %d: %dx%d pixels, %dx%d mm: %dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n", i,
 		width, height, mmw, mmh,
-		xdpi, ydpi, xdpcm, ydpcm);
+		xdpi, ydpi, xdpcm, ydpcm,
+		pitch);
 }
 
 void print_dpi_randr(const char *name,
@@ -41,11 +44,14 @@ void print_dpi_randr(const char *name,
 	int rrxdpcm = (int)round(w*10/mmw);
 	int rrydpcm = (int)round(h*10/mmh);
 
-	printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: %dx%d dpi, %dx%d dpcm\n", name,
+	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
+
+	printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: %dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n", name,
 		w, h,
 		(rotated ? "R" : "U"), mmw, mmh,
 		rrxdpi, rrydpi,
-		rrxdpcm, rrydpcm);
+		rrxdpcm, rrydpcm,
+		pitch);
 
 }
 

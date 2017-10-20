@@ -97,11 +97,6 @@ void do_xlib_dpi(Display *disp)
 
 			for (int o = 0; o < rrc->noutput; ++o) {
 				XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, rrc->outputs[o]);
-				/* Skip if not connected, or if reported width/height are 0 */
-				if (rro->connection != RR_Connected || !rro->mm_width || !rro->mm_height) {
-					XRRFreeOutputInfo(rro);
-					continue;
-				}
 
 				unsigned long mmw = rotated ? rro->mm_height : rro->mm_width;
 				unsigned long mmh = rotated ? rro->mm_width : rro->mm_height;

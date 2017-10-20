@@ -19,40 +19,41 @@
 #include <xcb/randr.h>
 #endif
 
+void print_dpi_common(int w, int h, int mmw, int mmh)
+{
+	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
+
+	int xdpi = 0, xdpcm = 0;
+	int ydpi = 0, ydpcm = 0;
+
+	if (mmw) {
+		xdpi = (int)round(w*25.4/mmw);
+		xdpcm = (int)round(w*10/mmw);
+	}
+
+	if (mmh) {
+		ydpi = (int)round(h*25.4/mmh);
+		ydpcm = (int)round(h*10/mmh);
+	}
+
+	printf("%dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n",
+		xdpi, ydpi, xdpcm, ydpcm, pitch);
+}
+
 void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 {
-	int xdpi = (int)round(width*25.4/mmw);
-	int ydpi = (int)round(height*25.4/mmh);
-
-	int xdpcm = (int)round(width*10/mmw);
-	int ydpcm = (int)round(height*10/mmh);
-
-	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(width*width+height*height);
-
-	printf("Screen %d: %dx%d pixels, %dx%d mm: %dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n", i,
-		width, height, mmw, mmh,
-		xdpi, ydpi, xdpcm, ydpcm,
-		pitch);
+	printf("Screen %d: %dx%d pixels, %dx%d mm: ", i, width, height, mmw, mmh);
+	print_dpi_common(width, height, mmw, mmh);
 }
 
 void print_dpi_randr(const char *name,
 	unsigned long mmw, unsigned long mmh, int w, int h, int rotated)
 {
-	int rrxdpi = (int)round(w*25.4/mmw);
-	int rrydpi = (int)round(h*25.4/mmh);
-
-	int rrxdpcm = (int)round(w*10/mmw);
-	int rrydpcm = (int)round(h*10/mmh);
-
-	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
-
-	printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: %dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n", name,
+	printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: ",
+		name,
 		w, h,
-		(rotated ? "R" : "U"), mmw, mmh,
-		rrxdpi, rrydpi,
-		rrxdpcm, rrydpcm,
-		pitch);
-
+		(rotated ? "R" : "U"), mmw, mmh);
+	print_dpi_common(w, h, mmw, mmh);
 }
 
 void do_xlib_dpi(Display *disp)

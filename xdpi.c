@@ -75,7 +75,7 @@ void do_xlib_dpi(Display *disp)
 		}
 
 		/* XRandR information */
-		XRRScreenResources *xrr_res = XRRGetScreenResourcesCurrent(disp, RootWindowOfScreen(screen));
+		XRRScreenResources *xrr_res = XRRGetScreenResources(disp, RootWindowOfScreen(screen));
 
 		if (!xrr_res)
 			continue; /* no XRR resources */

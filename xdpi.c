@@ -47,12 +47,18 @@ void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 }
 
 void print_dpi_randr(const char *name,
-	unsigned long mmw, unsigned long mmh, int w, int h, int rotated)
+	unsigned long mmw, unsigned long mmh, int w, int h, int rotated, int connection)
 {
-	printf("\t\t%s: %dx%d pixels, (%s) %lux%lu mm: ",
+	const char * connection_string = (connection == RR_Connected ?
+		"connected" : (connection == RR_Disconnected ?
+			"disconnected" : (connection == RR_UnknownConnection ?
+				"unknown" : "?")));
+	printf("\t\t%s: %dx%d pixels, (%s, %s) %lux%lu mm: ",
 		name,
 		w, h,
-		(rotated ? "R" : "U"), mmw, mmh);
+		(rotated ? "R" : "U"),
+		connection_string,
+		mmw, mmh);
 	print_dpi_common(w, h, mmw, mmh);
 }
 
@@ -102,7 +108,7 @@ void do_xlib_dpi(Display *disp)
 				unsigned long mmw = rotated ? rro->mm_height : rro->mm_width;
 				unsigned long mmh = rotated ? rro->mm_width : rro->mm_height;
 
-				print_dpi_randr(rro->name, mmw, mmh, w, h, rotated);
+				print_dpi_randr(rro->name, mmw, mmh, w, h, rotated, rro->connection);
 
 				XRRFreeOutputInfo(rro);
 			}
@@ -349,15 +355,15 @@ void do_xcb_dpi(xcb_connection_t *conn)
 					if (rro->crtc != rr_crtc[i][c])
 						continue;
 
-					uint32_t mmw = rotated ? rro ->mm_height : rro->mm_width;
-					uint32_t mmh = rotated ? rro ->mm_width : rro->mm_height;
+					uint32_t mmw = rotated ? rro->mm_height : rro->mm_width;
+					uint32_t mmh = rotated ? rro->mm_width : rro->mm_height;
 
 					/* NOTE: rr_name is NOT for us to free. It's also not guaranteed to be
 					 * NULL-terminated, so we copy it to our own string */
 					const uint8_t *rr_name = xcb_randr_get_output_info_name(rro);
 					char *name = calloc(rro->name_len + 1, sizeof(char));
 					memcpy(name, rr_name, rro->name_len);
-					print_dpi_randr(name, mmw, mmh, w, h, rotated);
+					print_dpi_randr(name, mmw, mmh, w, h, rotated, rro->connection);
 					free(name);
 				}
 			}

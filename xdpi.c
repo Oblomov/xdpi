@@ -19,7 +19,7 @@
 #include <xcb/randr.h>
 #endif
 
-void print_dpi_common(int w, int h, int mmw, int mmh)
+static void print_dpi_common(int w, int h, int mmw, int mmh)
 {
 	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
 
@@ -40,13 +40,13 @@ void print_dpi_common(int w, int h, int mmw, int mmh)
 		xdpi, ydpi, xdpcm, ydpcm, pitch);
 }
 
-void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
+static void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 {
 	printf("Screen %d: %dx%d pixels, %dx%d mm: ", i, width, height, mmw, mmh);
 	print_dpi_common(width, height, mmw, mmh);
 }
 
-void print_dpi_randr(const char *name,
+static void print_dpi_randr(const char *name,
 	unsigned long mmw, unsigned long mmh, int w, int h, int rotated, int connection)
 {
 	const char * connection_string = (connection == RR_Connected ?
@@ -62,7 +62,7 @@ void print_dpi_randr(const char *name,
 	print_dpi_common(w, h, mmw, mmh);
 }
 
-void do_xlib_dpi(Display *disp)
+static void do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
 
@@ -147,7 +147,7 @@ void do_xlib_dpi(Display *disp)
 	}
 }
 
-int xlib_dpi(void)
+static int xlib_dpi(void)
 {
 	puts("** Xlib interfaces");
 
@@ -165,7 +165,7 @@ int xlib_dpi(void)
 }
 
 #if WITH_XCB
-void do_xcb_dpi(xcb_connection_t *conn)
+static void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
 
@@ -411,7 +411,7 @@ cleanup:
 	free(xine_reply);
 }
 
-int xcb_dpi(void)
+static int xcb_dpi(void)
 {
 	puts("** xcb interfaces");
 	int ret = 0;

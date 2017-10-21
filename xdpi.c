@@ -92,9 +92,6 @@ void do_xlib_dpi(Display *disp)
 		/* iterate over all CRTCs, and compute the DPIs of the connected outputs */
 		for (int c = 0; c < xrr_res->ncrtc; ++c) {
 			XRRCrtcInfo *rrc = XRRGetCrtcInfo(disp, xrr_res, xrr_res->crtcs[c]);
-			/* skip if nothing connected */
-			if (rrc->noutput < 1)
-				continue;
 
 			unsigned int w = rrc->width;
 			unsigned int h = rrc->height;
@@ -114,6 +111,7 @@ void do_xlib_dpi(Display *disp)
 			}
 			XRRFreeCrtcInfo(rrc);
 		}
+		XRRFreeScreenResources(xrr_res);
 	}
 
 	/* Xinerama */

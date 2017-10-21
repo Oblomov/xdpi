@@ -419,6 +419,7 @@ int xcb_dpi(void)
 	xcb_connection_t *conn = xcb_connect(NULL, NULL);
 	if ((ret = xcb_connection_has_error(conn))) {
 		fputs("XCB connection error\n", stderr);
+		return 1;
 	}
 
 	puts("** xcb interfaces");

@@ -170,7 +170,12 @@ int xlib_dpi(void)
 void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
-	xcb_xinerama_is_active_cookie_t xine_active_cookie = xcb_xinerama_is_active(conn);
+
+	const xcb_query_extension_reply_t *xine_query = xcb_get_extension_data(conn, &xcb_xinerama_id);
+	const xcb_query_extension_reply_t *randr_query = xcb_get_extension_data(conn, &xcb_randr_id);
+
+	int xine_active = xine_query->present;
+	int randr_active = randr_query->present;
 
 	int count = 0, i, j;
 
@@ -180,19 +185,19 @@ void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_screen_t *screen_data =
 		malloc(iter.rem*sizeof(*screen_data));
 
-	xcb_randr_get_screen_resources_cookie_t *rr_cookie =
-		malloc(iter.rem*sizeof(*rr_cookie));
-	xcb_randr_get_screen_resources_reply_t **rr_res =
-		calloc(iter.rem, sizeof(*rr_res));
-	xcb_randr_crtc_t **rr_crtc =
-		calloc(iter.rem, sizeof(*rr_crtc));
-	xcb_randr_get_crtc_info_reply_t ***rr_crtc_info =
-		calloc(iter.rem, sizeof(*rr_crtc_info));
-	xcb_randr_get_output_info_reply_t ***rr_out =
-		calloc(iter.rem, sizeof(*rr_out));
-
 	xcb_xinerama_query_screens_cookie_t xine_cookie;
 	xcb_xinerama_query_screens_reply_t *xine_reply = NULL;
+
+	xcb_randr_get_screen_resources_cookie_t *rr_cookie = randr_active ?
+		malloc(iter.rem*sizeof(*rr_cookie)) : NULL;
+	xcb_randr_get_screen_resources_reply_t **rr_res = randr_active ?
+		calloc(iter.rem, sizeof(*rr_res)) : NULL;
+	xcb_randr_crtc_t **rr_crtc = randr_active ?
+		calloc(iter.rem, sizeof(*rr_crtc)) : NULL;
+	xcb_randr_get_crtc_info_reply_t ***rr_crtc_info = randr_active ?
+		calloc(iter.rem, sizeof(*rr_crtc_info)) : NULL;
+	xcb_randr_get_output_info_reply_t ***rr_out = randr_active ?
+		calloc(iter.rem, sizeof(*rr_out)) : NULL;
 
 	xcb_generic_error_t *err = NULL;
 
@@ -201,26 +206,32 @@ void do_xcb_dpi(xcb_connection_t *conn)
 		goto cleanup;
 	}
 
-	/* Find if Xinerama is enabled */
-	xcb_xinerama_is_active_reply_t *xine_active_reply = xcb_xinerama_is_active_reply
-		(conn, xine_active_cookie, &err);
-	if (err) {
-		fprintf(stderr, "error getting Xinerama status -- %d\n", err->error_code);
-		free(err);
-		err = NULL;
+	/* Find if Xinerama is actually enabled */
+	if (xine_active) {
+		xcb_xinerama_is_active_cookie_t xine_active_cookie = xcb_xinerama_is_active(conn);
+		xcb_xinerama_is_active_reply_t *xine_active_reply = xcb_xinerama_is_active_reply
+			(conn, xine_active_cookie, &err);
+		if (err) {
+			fprintf(stderr, "error getting Xinerama status -- %d\n", err->error_code);
+			free(err);
+			err = NULL;
+		} else {
+			assert(xine_active_reply);
+			xine_active = xine_active_reply->state;
+		}
 		free(xine_active_reply);
-		xine_active_reply = NULL;
 	}
-
-	int xine_active = (xine_active_reply && xine_active_reply->state > 0);
 
 	/** Query **/
-	/* RANDR */
+
+	/* Collect core info and query RANDR */
 	for (count = 0 ; iter.rem; ++count, xcb_screen_next(&iter)) {
 		screen_data[count] = *iter.data;
-		rr_cookie[count] = xcb_randr_get_screen_resources(conn,
-			iter.data->root);
+		if (randr_active)
+			rr_cookie[count] = xcb_randr_get_screen_resources(conn,
+				iter.data->root);
 	}
+
 	/* Xinerama */
 	if (xine_active)
 		xine_cookie = xcb_xinerama_query_screens(conn);
@@ -228,8 +239,6 @@ void do_xcb_dpi(xcb_connection_t *conn)
 	/** Get the actual data **/
 	/* RANDR */
 	for (i = 0; i < count; ++i) {
-		int skip_randr = 0;
-
 		int num_crtcs = 0;
 		int num_outputs = 0;
 		const xcb_randr_output_t *output = NULL;
@@ -244,10 +253,10 @@ void do_xcb_dpi(xcb_connection_t *conn)
 				err->error_code);
 			free(err);
 			err = NULL;
-			skip_randr = 1;
+			randr_active = 0;
 		}
 
-		if (skip_randr)
+		if (!randr_active)
 			break;
 
 		num_crtcs = xcb_randr_get_screen_resources_crtcs_length(rr_res[i]);

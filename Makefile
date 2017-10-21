@@ -1,5 +1,5 @@
 xcb?=1
-CPPFLAGS=-g -Wall -Wextra -DWITH_XCB=$(xcb)
+CPPFLAGS=-g -Wall -Wextra -DWITH_XCB=$(xcb) -Werror
 CFLAGS=-std=c99
 LDLIBS=-lm -lX11 -lXrandr -lXinerama
 

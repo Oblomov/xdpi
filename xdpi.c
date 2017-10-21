@@ -151,13 +151,13 @@ void do_xlib_dpi(Display *disp)
 
 int xlib_dpi(void)
 {
+	puts("** Xlib interfaces");
+
 	Display *disp = XOpenDisplay(getenv("DISPLAY"));
 	if (!disp) {
 		fputs("Could not open X display\n", stderr);
 		return 1;
 	}
-
-	puts("** Xlib interfaces");
 
 	do_xlib_dpi(disp);
 
@@ -415,18 +415,16 @@ cleanup:
 
 int xcb_dpi(void)
 {
+	puts("** xcb interfaces");
 	int ret = 0;
 	xcb_connection_t *conn = xcb_connect(NULL, NULL);
 	if ((ret = xcb_connection_has_error(conn))) {
 		fputs("XCB connection error\n", stderr);
-		return 1;
+	} else {
+		do_xcb_dpi(conn);
+
+		xcb_disconnect(conn);
 	}
-
-	puts("** xcb interfaces");
-
-	do_xcb_dpi(conn);
-
-	xcb_disconnect(conn);
 	return ret;
 }
 #endif

@@ -216,7 +216,6 @@ void do_xcb_dpi(xcb_connection_t *conn)
 			free(err);
 			err = NULL;
 		} else {
-			assert(xine_active_reply);
 			xine_active = xine_active_reply->state;
 		}
 		free(xine_active_reply);

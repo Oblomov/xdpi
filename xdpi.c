@@ -17,6 +17,7 @@
 #include <xcb/xproto.h>
 #include <xcb/xinerama.h>
 #include <xcb/randr.h>
+#include <xcb/xcb_xrm.h>
 #endif
 
 static void print_dpi_common(int w, int h, int mmw, int mmh)
@@ -389,6 +390,19 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 				xi->width,
 				xi->height);
 		}
+	}
+
+	/* Xft.dpi */
+	xcb_xrm_database_t *xrmdb = xcb_xrm_database_from_default(conn);
+	if (xrmdb) {
+		char *dpi = NULL;
+		xcb_xrm_resource_get_string(xrmdb, "Xft.dpi", NULL, &dpi);
+		if (dpi) {
+			puts("X resources:");
+			printf("\tXft.dpi: %s\n", dpi);
+		}
+		free(dpi);
+		xcb_xrm_database_free(xrmdb);
 	}
 
 cleanup:

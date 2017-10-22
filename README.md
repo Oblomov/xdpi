@@ -22,7 +22,10 @@ Simply run:
     make
 
 You will need a compiler supporting C99, and development files for Xlib,
-the XRANDR and Xinerama extensions, xcb, xcb-xrandr and xcb-xinerama.
+and the XRANDR and Xinerama extensions.
+
+For xcb support, you will also need the development files for xcb-xrandr,
+xcb-xinerama and xcb-xrm.
 
 If you do not have xcb or your xcb version is too old, you can compile
 without xcb support by running

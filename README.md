@@ -38,3 +38,21 @@ Mostly, because I wanted to have a look at xcb and how different it was
 from Xlib. My usage is probably imperfect, but it does show how much
 more complex fully taking advantage of the asynchronous nature of the
 X11 protocol (which is what xcb is all about) is.
+
+# Qt
+
+A simple program to illustrate how Qt 5.6 and higher handle DPI
+information depending on the application settings
+`Qt::AA_EnableHighDpiScaling` and `Qt::AA_DisableHighDpiScaling` can be
+found in the `qt` directory.
+
+Build it with
+
+    qmake && make
+
+and then run it with
+
+    ./qtdpi
+
+If your `qmake` by defaults builds against Qt4, run `qtmake -qt=5`
+before `make`.

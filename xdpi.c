@@ -200,8 +200,12 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 
 	xcb_generic_error_t *err = NULL;
 
-	if (!screen_data || !rr_cookie || !rr_res || !rr_crtc || !rr_crtc_info || !rr_out) {
+	if (!screen_data) {
 		fputs("could not allocate memory for screen data\n", stderr);
+		goto cleanup;
+	}
+	if (randr_active && !(rr_cookie && rr_res && rr_crtc && rr_crtc_info && rr_out)) {
+		fputs("could not allocate memory for RANDR data\n", stderr);
 		goto cleanup;
 	}
 
@@ -236,7 +240,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 
 	/** Get the actual data **/
 	/* RANDR */
-	for (i = 0; i < count; ++i) {
+	if (randr_active) for (i = 0; i < count; ++i) {
 		int num_crtcs = 0;
 		int num_outputs = 0;
 		const xcb_randr_output_t *output = NULL;
@@ -339,7 +343,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 				screen->width_in_millimeters, screen->height_in_millimeters);
 		}
 		/* XRANDR information */
-		if (rr_res[i]) {
+		if (randr_active && rr_res[i]) {
 			puts("\tXRandR:");
 			const xcb_randr_get_screen_resources_reply_t *rr = rr_res[i];
 			for (int c = 0; c < rr->num_crtcs; ++c) {
@@ -408,7 +412,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 cleanup:
 	free(screen_data);
 	free(rr_cookie);
-	for (i = 0; i < count; ++i) {
+	if (randr_active) for (i = 0; i < count; ++i) {
 		const xcb_randr_get_screen_resources_reply_t *rr = rr_res[i];
 		for (int o = 0; o < rr->num_outputs; ++o)
 			free(rr_out[i][o]);

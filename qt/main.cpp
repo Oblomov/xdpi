@@ -29,16 +29,22 @@ void dpiInfo(int argc, char *argv[])
 
 }
 
+void allDpiInfo(int argc, char *argv[])
+{
+	dpiInfo<false, false>(argc, argv);
+	dpiInfo<false, true>(argc, argv);
+	dpiInfo<true, false>(argc, argv);
+	dpiInfo<true, true>(argc, argv);
+}
+
 int main(int argc, char *argv[])
 {
 	QString qt_version = QString("QT version: 0x") + QString::number(QT_VERSION, 16);
 
 	cout << qt_version.toStdString() << "\n";
 
-	dpiInfo<false, false>(argc, argv);
-	dpiInfo<false, true>(argc, argv);
-	dpiInfo<true, false>(argc, argv);
-	dpiInfo<true, true>(argc, argv);
+	allDpiInfo(argc, argv);
 
+	// TODO on Windows, redo after setting DPI awareness
 	return 0;
 }

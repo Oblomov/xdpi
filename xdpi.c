@@ -67,6 +67,9 @@ static void do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
 
+	int scratch = 0;
+	const bool has_randr = XRRQueryExtension(disp, &scratch, &scratch);
+
 	/* Iterate over all screens, and show X11 and XRandR information */
 	for (int i = 0 ; i < num_screens ; ++i) {
 		Screen *screen = ScreenOfDisplay(disp, i);
@@ -81,6 +84,9 @@ static void do_xlib_dpi(Display *disp)
 
 			print_dpi_screen(i, width, height, mmw, mmh);
 		}
+
+		if (!has_randr)
+			continue;
 
 		/* XRandR information */
 		XRRScreenResources *xrr_res = XRRGetScreenResources(disp, RootWindowOfScreen(screen));

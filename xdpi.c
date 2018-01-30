@@ -63,16 +63,36 @@ static void print_dpi_randr(const char *name,
 	print_dpi_common(w, h, mmw, mmh);
 }
 
+static void print_dpi_monitor(const char *name, int width, int height, int mmw, int mmh, Bool prim, Bool automatic)
+{
+#define STRMAX 255
+	char info[STRMAX+1] = {0};
+	snprintf(info, STRMAX, "%s%s%s%s%s",
+		((prim || automatic) ? " (" : ""),
+		(prim ? "primary" : ""),
+		((prim && automatic) ? ", " : ""),
+		(automatic ? "automatic" : ""),
+		((prim || automatic) ? ")" : ""));
+
+	printf("\t\t%s%s: %dx%d pixels, %dx%d mm: ", name, info, width, height, mmw, mmh);
+	print_dpi_common(width, height, mmw, mmh);
+}
+
+
 static void do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
 
 	int scratch = 0;
 	const Bool has_randr = XRRQueryExtension(disp, &scratch, &scratch);
+	int rr_major = 0, rr_minor = 0;
+	if (has_randr)
+		XRRQueryVersion(disp, &rr_major, &rr_minor);
 
 	/* Iterate over all screens, and show X11 and XRandR information */
 	for (int i = 0 ; i < num_screens ; ++i) {
 		Screen *screen = ScreenOfDisplay(disp, i);
+		Window root_win = RootWindowOfScreen(screen);
 
 		/* Standard X11 information */
 		{
@@ -89,12 +109,12 @@ static void do_xlib_dpi(Display *disp)
 			continue;
 
 		/* XRandR information */
-		XRRScreenResources *xrr_res = XRRGetScreenResources(disp, RootWindowOfScreen(screen));
+		XRRScreenResources *xrr_res = XRRGetScreenResources(disp, root_win);
 
 		if (!xrr_res)
 			continue; /* no XRR resources */
 
-		puts("\tXRandR:");
+		printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 
 		/* iterate over all CRTCs, and compute the DPIs of the connected outputs */
 		for (int c = 0; c < xrr_res->ncrtc; ++c) {
@@ -119,6 +139,27 @@ static void do_xlib_dpi(Display *disp)
 			XRRFreeCrtcInfo(rrc);
 		}
 		XRRFreeScreenResources(xrr_res);
+
+		/* Monitors were introduced in RANDR 1.5 */
+		if (rr_major > 1 || rr_minor > 4) {
+			int nmon = 0;
+			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, &nmon);
+			if (nmon > 0) {
+				puts("\tMonitors:");
+				XRRMonitorInfo *mon = monitors;
+				while (nmon-- > 0) {
+					/* Note that width/height follow the monitor rotation,
+					 * but mwidth/mheight don't!
+					 */
+					print_dpi_monitor(XGetAtomName(disp, mon->name),
+						mon->width, mon->height,
+						mon->mwidth, mon->mheight,
+						mon->primary, mon->automatic);
+					++mon;
+				}
+			}
+			XRRFreeMonitors(monitors);
+		}
 	}
 
 	/* Xinerama */

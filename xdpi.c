@@ -65,14 +65,29 @@ static void print_dpi_randr(const char *name,
 
 static void print_dpi_monitor(const char *name, int width, int height, int mmw, int mmh, Bool prim, Bool automatic)
 {
+	/* TODO FIXME the monitor interface does not provide a way to tell if
+	 * the monitor is rotated or not. A possible ways to determine this
+	 * would be to fetch the associated outputs and check if any/all are
+	 * rotated. This requires multiple roundtrips, and one is left to
+	 * wonder what should be done if one of the outputs is rotated
+	 * and the other is not. Pending further clarifications on the matter,
+	 * we determine if the output is rotated or not simply by comparing
+	 * the relative magnitude of width/height with that of mmw/mmh.
+	 */
+
+	const int rotated = ((width > height) != (mmw > mmh));
+	if (rotated) {
+		int t = mmw;
+		mmw = mmh;
+		mmh = t;
+	}
+
 #define STRMAX 255
 	char info[STRMAX+1] = {0};
-	snprintf(info, STRMAX, "%s%s%s%s%s",
-		((prim || automatic) ? " (" : ""),
-		(prim ? "primary" : ""),
-		((prim && automatic) ? ", " : ""),
-		(automatic ? "automatic" : ""),
-		((prim || automatic) ? ")" : ""));
+	snprintf(info, STRMAX, " (%s%s%s)",
+		(rotated ? "R" : "U"),
+		(prim ? ", primary" : ""),
+		(automatic ? ", automatic" : ""));
 
 	printf("\t\t%s%s: %dx%d pixels, %dx%d mm: ", name, info, width, height, mmw, mmh);
 	print_dpi_common(width, height, mmw, mmh);

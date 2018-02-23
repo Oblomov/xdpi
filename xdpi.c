@@ -55,7 +55,7 @@ static void print_dpi_randr(const char *name,
 			"disconnected" : (connection == RR_UnknownConnection ?
 				"unknown" : "?")));
 	printf("\t\t%s: %dx%d pixels, (%s, %s) %lux%lu mm: ",
-		name,
+		name ? name : "<error>",
 		w, h,
 		(rotated ? "R" : "U"),
 		connection_string,
@@ -89,7 +89,9 @@ static void print_dpi_monitor(const char *name, int width, int height, int mmw, 
 		(prim ? ", primary" : ""),
 		(automatic ? ", automatic" : ""));
 
-	printf("\t\t%s%s: %dx%d pixels, %dx%d mm: ", name, info, width, height, mmw, mmh);
+	printf("\t\t%s%s: %dx%d pixels, %dx%d mm: ",
+		name ? name : "<error>",
+		info, width, height, mmw, mmh);
 	print_dpi_common(width, height, mmw, mmh);
 }
 
@@ -166,10 +168,12 @@ static void do_xlib_dpi(Display *disp)
 					/* Note that width/height follow the monitor rotation,
 					 * but mwidth/mheight don't!
 					 */
-					print_dpi_monitor(XGetAtomName(disp, mon->name),
+					char *name = XGetAtomName(disp, mon->name);
+					print_dpi_monitor(name,
 						mon->width, mon->height,
 						mon->mwidth, mon->mheight,
 						mon->primary, mon->automatic);
+					free(name);
 					++mon;
 				}
 			}
@@ -231,12 +235,14 @@ static int xlib_dpi(void)
 static void do_xcb_dpi(xcb_connection_t *conn)
 {
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
+	xcb_generic_error_t *err = NULL;
 
 	const xcb_query_extension_reply_t *xine_query = xcb_get_extension_data(conn, &xcb_xinerama_id);
 	const xcb_query_extension_reply_t *randr_query = xcb_get_extension_data(conn, &xcb_randr_id);
 
 	int xine_active = xine_query->present;
 	int randr_active = randr_query->present;
+	int has_randr_monitors = 0;
 
 	int count = 0, i, j;
 
@@ -249,6 +255,13 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_xinerama_query_screens_cookie_t xine_cookie;
 	xcb_xinerama_query_screens_reply_t *xine_reply = NULL;
 
+	uint32_t randr_major = 0, randr_minor = 0;
+
+	xcb_randr_query_version_cookie_t rr_ver_cookie;
+	xcb_randr_query_version_reply_t *rr_ver_rep = NULL;
+	if (randr_active)
+		rr_ver_cookie = xcb_randr_query_version(conn, 1, 5);
+
 	xcb_randr_get_screen_resources_cookie_t *rr_cookie = randr_active ?
 		malloc(iter.rem*sizeof(*rr_cookie)) : NULL;
 	xcb_randr_get_screen_resources_reply_t **rr_res = randr_active ?
@@ -260,7 +273,25 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_randr_get_output_info_reply_t ***rr_out = randr_active ?
 		calloc(iter.rem, sizeof(*rr_out)) : NULL;
 
-	xcb_generic_error_t *err = NULL;
+	/* Monitors require RANDR 1.5 */
+	if (randr_active) {
+		rr_ver_rep = xcb_randr_query_version_reply(conn, rr_ver_cookie, &err);
+		if (err) {
+			fprintf(stderr, "error getting Xinerama status -- %d\n", err->error_code);
+			free(err);
+			randr_active = 0;
+		} else {
+			randr_major = rr_ver_rep->major_version;
+			randr_minor = rr_ver_rep->minor_version;
+			if (randr_major > 1 || randr_minor >= 5)
+				has_randr_monitors = 1;
+		}
+	}
+
+	xcb_randr_get_monitors_cookie_t *rr_mon_cookie = has_randr_monitors ?
+		malloc(iter.rem*sizeof(*rr_cookie)) : NULL;
+	xcb_randr_get_monitors_reply_t **rr_mon = has_randr_monitors ?
+		malloc(iter.rem*sizeof(*rr_mon)) : NULL;
 
 	if (!screen_data) {
 		fputs("could not allocate memory for screen data\n", stderr);
@@ -268,6 +299,10 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	}
 	if (randr_active && !(rr_cookie && rr_res && rr_crtc && rr_crtc_info && rr_out)) {
 		fputs("could not allocate memory for RANDR data\n", stderr);
+		goto cleanup;
+	}
+	if (has_randr_monitors && !(rr_mon_cookie && rr_mon)) {
+		fputs("could not allocate memory for RANDR monitor data\n", stderr);
 		goto cleanup;
 	}
 
@@ -294,6 +329,8 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		if (randr_active)
 			rr_cookie[count] = xcb_randr_get_screen_resources(conn,
 				iter.data->root);
+		if (has_randr_monitors)
+			rr_mon_cookie[count] = xcb_randr_get_monitors(conn, iter.data->root, 1);
 	}
 
 	/* Xinerama */
@@ -380,9 +417,21 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 			}
 		}
 
+		if (has_randr_monitors) {
+			rr_mon[i] = xcb_randr_get_monitors_reply(conn, rr_mon_cookie[i], &err);
+			if (err) {
+				fprintf(stderr, "error getting monitors list on screen %d -- %d\n", i,
+					err->error_code);
+				free(err);
+				err = NULL;
+				continue;
+			}
+		}
+
 		free(output_cookie);
 		free(crtc_cookie);
 	}
+
 	/* Xinerama */
 	if (xine_active) {
 		xine_reply = xcb_xinerama_query_screens_reply(conn, xine_cookie, &err);
@@ -435,9 +484,39 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 					 * NULL-terminated, so we copy it to our own string */
 					const uint8_t *rr_name = xcb_randr_get_output_info_name(rro);
 					char *name = calloc(rro->name_len + 1, sizeof(char));
-					memcpy(name, rr_name, rro->name_len);
+					if (name) memcpy(name, rr_name, rro->name_len);
 					print_dpi_randr(name, mmw, mmh, w, h, rotated, rro->connection);
 					free(name);
+				}
+			}
+
+			if (has_randr_monitors) {
+				puts("\tMonitors:");
+				xcb_randr_monitor_info_iterator_t rr_mon_iter =
+					xcb_randr_get_monitors_monitors_iterator(rr_mon[i]);
+				while (rr_mon_iter.rem) {
+					const xcb_randr_monitor_info_t *mon = rr_mon_iter.data;
+					/* TODO get atom names all at once? */
+					const xcb_get_atom_name_cookie_t name_cookie = xcb_get_atom_name(conn, mon->name);
+					xcb_get_atom_name_reply_t *name_rep = xcb_get_atom_name_reply(conn, name_cookie, &err);
+					char *name = NULL;
+					if (err) {
+						fprintf(stderr, "error getting atom name -- %d \n",
+							err->error_code);
+						free(err);
+						err = NULL;
+					} else {
+						size_t name_l = xcb_get_atom_name_name_length(name_rep);
+						name = calloc(name_l+1, sizeof(char));
+						if (name) memcpy(name, xcb_get_atom_name_name(name_rep), name_l);
+					}
+					print_dpi_monitor(name,
+						mon->width, mon->height,
+						mon->width_in_millimeters, mon->height_in_millimeters,
+						mon->primary, mon->automatic);
+					free(name);
+					free(name_rep);
+					xcb_randr_monitor_info_next(&rr_mon_iter);
 				}
 			}
 		}
@@ -488,6 +567,12 @@ cleanup:
 	free(rr_crtc_info);
 	free(rr_crtc);
 	free(rr_res);
+	free(rr_ver_rep);
+	if (has_randr_monitors) for (i = 0; i < count; ++i) {
+		free(rr_mon[i]);
+	}
+	free(rr_mon);
+	free(rr_mon_cookie);
 	free(xine_reply);
 }
 

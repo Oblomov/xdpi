@@ -10,13 +10,10 @@ addons:
   packages:
    - libxinerama-dev
    - libxrandr-dev
-   - libxcb-xinerama0-dev
-   - libxcb-randr0-dev
-   - libxcb-xrm-dev
 
 language: c
 compiler:
  - gcc
  - clang
 
-script: make && ./xdpi
+script: make xcb=0 && ./xdpi

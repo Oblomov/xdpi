@@ -255,7 +255,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	xcb_xinerama_query_screens_cookie_t xine_cookie;
 	xcb_xinerama_query_screens_reply_t *xine_reply = NULL;
 
-	uint32_t randr_major = 0, randr_minor = 0;
+	uint32_t rr_major = 0, rr_minor = 0;
 
 	xcb_randr_query_version_cookie_t rr_ver_cookie;
 	xcb_randr_query_version_reply_t *rr_ver_rep = NULL;
@@ -281,9 +281,9 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 			free(err);
 			randr_active = 0;
 		} else {
-			randr_major = rr_ver_rep->major_version;
-			randr_minor = rr_ver_rep->minor_version;
-			if (randr_major > 1 || randr_minor >= 5)
+			rr_major = rr_ver_rep->major_version;
+			rr_minor = rr_ver_rep->minor_version;
+			if (rr_major > 1 || rr_minor >= 5)
 				has_randr_monitors = 1;
 		}
 	}
@@ -455,7 +455,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		}
 		/* XRANDR information */
 		if (randr_active && rr_res[i]) {
-			puts("\tXRandR:");
+			printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 			const xcb_randr_get_screen_resources_reply_t *rr = rr_res[i];
 			for (int c = 0; c < rr->num_crtcs; ++c) {
 				const xcb_randr_get_crtc_info_reply_t *rrc = rr_crtc_info[i][c];

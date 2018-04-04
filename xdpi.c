@@ -133,27 +133,27 @@ static void do_xlib_dpi(Display *disp)
 
 		printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 
-		/* iterate over all CRTCs, and compute the DPIs of the connected outputs */
-		for (int c = 0; c < xrr_res->ncrtc; ++c) {
-			XRRCrtcInfo *rrc = XRRGetCrtcInfo(disp, xrr_res, xrr_res->crtcs[c]);
+		/* iterate over all outputs, and compute the DPIs from the connected CRTC */
+		for (int o = 0; o < xrr_res->noutput; ++o) {
+			XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, xrr_res->outputs[o]);
 
-			unsigned int w = rrc->width;
-			unsigned int h = rrc->height;
+			if (rro->crtc) {
+				XRRCrtcInfo *rrc = XRRGetCrtcInfo(disp, xrr_res, rro->crtc);
 
-			Rotation rot = (rrc->rotation & 0x0f);
-			int rotated = ((rot == RR_Rotate_90) || (rot == RR_Rotate_270));
+				unsigned int w = rrc->width;
+				unsigned int h = rrc->height;
 
-			for (int o = 0; o < rrc->noutput; ++o) {
-				XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, rrc->outputs[o]);
+				Rotation rot = (rrc->rotation & 0x0f);
+				int rotated = ((rot == RR_Rotate_90) || (rot == RR_Rotate_270));
 
 				unsigned long mmw = rotated ? rro->mm_height : rro->mm_width;
 				unsigned long mmh = rotated ? rro->mm_width : rro->mm_height;
 
 				print_dpi_randr(rro->name, mmw, mmh, w, h, rotated, rro->connection);
 
-				XRRFreeOutputInfo(rro);
+				XRRFreeCrtcInfo(rrc);
 			}
-			XRRFreeCrtcInfo(rrc);
+			XRRFreeOutputInfo(rro);
 		}
 		XRRFreeScreenResources(xrr_res);
 

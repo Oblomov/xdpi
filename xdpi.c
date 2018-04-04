@@ -457,36 +457,34 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		if (randr_active && rr_res[i]) {
 			printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 			const xcb_randr_get_screen_resources_reply_t *rr = rr_res[i];
-			for (int c = 0; c < rr->num_crtcs; ++c) {
-				const xcb_randr_get_crtc_info_reply_t *rrc = rr_crtc_info[i][c];
-				if (rrc->num_outputs < 1)
-					continue;
+			for (int o = 0; o < rr->num_outputs; ++o) {
+				const xcb_randr_get_output_info_reply_t *rro = rr_out[i][o];
+				if (rro->crtc) {
+					int c = 0;
+					while (c < rr->num_crtcs) {
+						if (rr_crtc[i][c] == rro->crtc)
+							break;
+						++c;
+					}
+					if (c < rr->num_crtcs) {
+						const xcb_randr_get_crtc_info_reply_t *rrc = rr_crtc_info[i][c];
+						uint16_t w = rrc->width;
+						uint16_t h = rrc->height;
 
-				uint16_t w = rrc->width;
-				uint16_t h = rrc->height;
+						uint16_t rot = (rrc->rotation & 0x0f);
+						int rotated = ((rot == XCB_RANDR_ROTATION_ROTATE_90) || (rot == XCB_RANDR_ROTATION_ROTATE_270));
 
-				uint16_t rot = (rrc->rotation & 0x0f);
-				int rotated = ((rot == XCB_RANDR_ROTATION_ROTATE_90) || (rot == XCB_RANDR_ROTATION_ROTATE_270));
+						uint32_t mmw = rotated ? rro->mm_height : rro->mm_width;
+						uint32_t mmh = rotated ? rro->mm_width : rro->mm_height;
 
-				/* Note that we proceed here differently than with Xlib: instead of getting
-				 * per-CRTC output info, we got per-Screen outputs, so now we iterate over all
-				 * Screen outputs and find the ones that match this CRTC
-				 */
-				for (int o = 0; o < rr->num_outputs; ++o) {
-					const xcb_randr_get_output_info_reply_t *rro = rr_out[i][o];
-					if (rro->crtc != rr_crtc[i][c])
-						continue;
-
-					uint32_t mmw = rotated ? rro->mm_height : rro->mm_width;
-					uint32_t mmh = rotated ? rro->mm_width : rro->mm_height;
-
-					/* NOTE: rr_name is NOT for us to free. It's also not guaranteed to be
-					 * NULL-terminated, so we copy it to our own string */
-					const uint8_t *rr_name = xcb_randr_get_output_info_name(rro);
-					char *name = calloc(rro->name_len + 1, sizeof(char));
-					if (name) memcpy(name, rr_name, rro->name_len);
-					print_dpi_randr(name, mmw, mmh, w, h, rotated, rro->connection);
-					free(name);
+						/* NOTE: rr_name is NOT for us to free. It's also not guaranteed to be
+						 * NULL-terminated, so we copy it to our own string */
+						const uint8_t *rr_name = xcb_randr_get_output_info_name(rro);
+						char *name = calloc(rro->name_len + 1, sizeof(char));
+						if (name) memcpy(name, rr_name, rro->name_len);
+						print_dpi_randr(name, mmw, mmh, w, h, rotated, rro->connection);
+						free(name);
+					}
 				}
 			}
 

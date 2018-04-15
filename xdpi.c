@@ -48,15 +48,17 @@ static void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 }
 
 static void print_dpi_randr(const char *name,
-	unsigned long mmw, unsigned long mmh, int w, int h, int rotated, int connection)
+	unsigned long mmw, unsigned long mmh, int w, int h,
+	int rotated, int primary, int connection)
 {
 	const char * connection_string = (connection == RR_Connected ?
 		"connected" : (connection == RR_Disconnected ?
 			"disconnected" : (connection == RR_UnknownConnection ?
 				"unknown" : "?")));
-	printf("\t\t%s (%s, %s): %dx%d pixels, %lux%lu mm: ",
+	printf("\t\t%s (%s%s, %s): %dx%d pixels, %lux%lu mm: ",
 		name ? name : "<error>",
 		(rotated ? "R" : "U"),
+		(primary ? ", primary" : ""),
 		connection_string,
 		w, h,
 		mmw, mmh);
@@ -133,6 +135,10 @@ static void do_xlib_dpi(Display *disp)
 
 		printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 
+		RROutput primary = -1;
+		if (rr_major > 1 || rr_minor >= 3)
+			primary = XRRGetOutputPrimary(disp, root_win);
+
 		/* iterate over all outputs, and compute the DPIs from the connected CRTC */
 		for (int o = 0; o < xrr_res->noutput; ++o) {
 			XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, xrr_res->outputs[o]);
@@ -149,7 +155,9 @@ static void do_xlib_dpi(Display *disp)
 				unsigned long mmw = rotated ? rro->mm_height : rro->mm_width;
 				unsigned long mmh = rotated ? rro->mm_width : rro->mm_height;
 
-				print_dpi_randr(rro->name, mmw, mmh, w, h, rotated, rro->connection);
+				print_dpi_randr(rro->name, mmw, mmh, w, h,
+					rotated, xrr_res->outputs[o] == primary,
+					rro->connection);
 
 				XRRFreeCrtcInfo(rrc);
 			}
@@ -158,7 +166,7 @@ static void do_xlib_dpi(Display *disp)
 		XRRFreeScreenResources(xrr_res);
 
 		/* Monitors were introduced in RANDR 1.5 */
-		if (rr_major > 1 || rr_minor > 4) {
+		if (rr_major > 1 || rr_minor >= 5) {
 			int nmon = 0;
 			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, &nmon);
 			if (nmon > 0) {
@@ -242,6 +250,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 
 	int xine_active = xine_query->present;
 	int randr_active = randr_query->present;
+	int has_randr_primary = 0;
 	int has_randr_monitors = 0;
 
 	int count = 0, i, j;
@@ -266,8 +275,16 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		malloc(iter.rem*sizeof(*rr_cookie)) : NULL;
 	xcb_randr_get_screen_resources_reply_t **rr_res = randr_active ?
 		calloc(iter.rem, sizeof(*rr_res)) : NULL;
+
+	xcb_randr_get_output_primary_cookie_t *rr_primary_cookie = randr_active ?
+		malloc(iter.rem*sizeof(*rr_primary_cookie)) : NULL;
+	xcb_randr_get_output_primary_reply_t **rr_primary_reply = randr_active ?
+		calloc(iter.rem, sizeof(*rr_primary_reply)) : NULL;
+
 	xcb_randr_crtc_t **rr_crtc = randr_active ?
 		calloc(iter.rem, sizeof(*rr_crtc)) : NULL;
+	xcb_randr_output_t **rr_output = randr_active ?
+		calloc(iter.rem, sizeof(*rr_output)) : NULL;
 	xcb_randr_get_crtc_info_reply_t ***rr_crtc_info = randr_active ?
 		calloc(iter.rem, sizeof(*rr_crtc_info)) : NULL;
 	xcb_randr_get_output_info_reply_t ***rr_out = randr_active ?
@@ -283,6 +300,8 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		} else {
 			rr_major = rr_ver_rep->major_version;
 			rr_minor = rr_ver_rep->minor_version;
+			if (rr_major > 1 || rr_minor >= 3)
+				has_randr_primary = 1;
 			if (rr_major > 1 || rr_minor >= 5)
 				has_randr_monitors = 1;
 		}
@@ -299,6 +318,10 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	}
 	if (randr_active && !(rr_cookie && rr_res && rr_crtc && rr_crtc_info && rr_out)) {
 		fputs("could not allocate memory for RANDR data\n", stderr);
+		goto cleanup;
+	}
+	if (has_randr_primary && !(rr_primary_cookie && rr_primary_reply)) {
+		fputs("could not allocate memory for RANDR primary output\n", stderr);
 		goto cleanup;
 	}
 	if (has_randr_monitors && !(rr_mon_cookie && rr_mon)) {
@@ -329,6 +352,9 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		if (randr_active)
 			rr_cookie[count] = xcb_randr_get_screen_resources(conn,
 				iter.data->root);
+		if (has_randr_primary)
+			rr_primary_cookie[count] = xcb_randr_get_output_primary(conn,
+				iter.data->root);
 		if (has_randr_monitors)
 			rr_mon_cookie[count] = xcb_randr_get_monitors(conn, iter.data->root, 1);
 	}
@@ -342,7 +368,6 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	if (randr_active) for (i = 0; i < count; ++i) {
 		int num_crtcs = 0;
 		int num_outputs = 0;
-		const xcb_randr_output_t *output = NULL;
 
 		xcb_randr_get_crtc_info_cookie_t *crtc_cookie = NULL;
 		xcb_randr_get_output_info_cookie_t *output_cookie = NULL;
@@ -360,13 +385,29 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		if (!randr_active)
 			break;
 
+		if (has_randr_primary) {
+			rr_primary_reply[i] = xcb_randr_get_output_primary_reply(conn,
+				rr_primary_cookie[i], &err);
+			if (err) {
+				fprintf(stderr, "error getting primary output for screen %d -- %d\n", i,
+					err->error_code);
+				free(err);
+				err = NULL;
+				randr_active = 0;
+			}
+		}
+
+		if (!randr_active)
+			break;
+
+
 		num_crtcs = xcb_randr_get_screen_resources_crtcs_length(rr_res[i]);
 		num_outputs = xcb_randr_get_screen_resources_outputs_length(rr_res[i]);
 
 		/* Get the first crtc and output. We store the CRTC to match it to the output
 		 * later on. NOTE that this is not for us to free. */
 		rr_crtc[i] = xcb_randr_get_screen_resources_crtcs(rr_res[i]);
-		output = xcb_randr_get_screen_resources_outputs(rr_res[i]);
+		rr_output[i] = xcb_randr_get_screen_resources_outputs(rr_res[i]);
 
 		/* Cookies for the requests */
 		crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
@@ -383,7 +424,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 
 		/* Output requests */
 		for (j = 0; j < num_outputs; ++j)
-			output_cookie[j] = xcb_randr_get_output_info(conn, output[j],  0);
+			output_cookie[j] = xcb_randr_get_output_info(conn, rr_output[i][j],  0);
 
 		/* Room for the replies */
 		rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
@@ -446,6 +487,10 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 
 	/* Show it */
 	for (i = 0; i < count; ++i) {
+		xcb_randr_output_t primary = -1;
+		if (has_randr_primary)
+			primary = rr_primary_reply[i]->output;
+
 		const xcb_screen_t *screen = screen_data + i;
 		/* Standard X11 information */
 		{
@@ -482,7 +527,10 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 						const uint8_t *rr_name = xcb_randr_get_output_info_name(rro);
 						char *name = calloc(rro->name_len + 1, sizeof(char));
 						if (name) memcpy(name, rr_name, rro->name_len);
-						print_dpi_randr(name, mmw, mmh, w, h, rotated, rro->connection);
+						print_dpi_randr(name, mmw, mmh, w, h,
+							rotated,
+							primary == rr_output[i][o],
+							rro->connection);
 						free(name);
 					}
 				}
@@ -563,9 +611,15 @@ cleanup:
 	}
 	free(rr_out);
 	free(rr_crtc_info);
+	free(rr_output);
 	free(rr_crtc);
 	free(rr_res);
 	free(rr_ver_rep);
+	free(rr_primary_cookie);
+	if (has_randr_primary) for (i = 0; i < count; ++i) {
+		free(rr_primary_reply[i]);
+	}
+	free(rr_primary_reply);
 	if (has_randr_monitors) for (i = 0; i < count; ++i) {
 		free(rr_mon[i]);
 	}

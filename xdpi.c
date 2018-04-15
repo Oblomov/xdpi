@@ -20,7 +20,27 @@
 #include <xcb/xcb_xrm.h>
 #endif
 
-static void print_dpi_common(int w, int h, int mmw, int mmh)
+/* The DPI reported by the core protocol, possibly with an Xft.dpi
+ * override. One per screen.
+ */
+float *reference_dpi;
+
+#define STRMAX 1024
+struct named_dpi
+{
+	int dpi;
+	char name[STRMAX+1];
+};
+
+/* The DPI reported by RANDR for each output or monitor.
+ * One per output per screen
+ */
+int *noutput;
+struct named_dpi **output_dpi;
+int *nmon;
+struct named_dpi **monitor_dpi;
+
+static int print_dpi_common(int w, int h, int mmw, int mmh)
 {
 	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
 
@@ -39,15 +59,17 @@ static void print_dpi_common(int w, int h, int mmw, int mmh)
 
 	printf("%dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n",
 		xdpi, ydpi, xdpcm, ydpcm, pitch);
+
+	return ydpi ? ydpi : xdpi;
 }
 
-static void print_dpi_screen(int i, int width, int height, int mmw, int mmh)
+static int print_dpi_screen(int i, int width, int height, int mmw, int mmh)
 {
 	printf("Screen %d: %dx%d pixels, %dx%d mm: ", i, width, height, mmw, mmh);
-	print_dpi_common(width, height, mmw, mmh);
+	return print_dpi_common(width, height, mmw, mmh);
 }
 
-static void print_dpi_randr(const char *name,
+static int print_dpi_randr(const char *name,
 	unsigned long mmw, unsigned long mmh, int w, int h,
 	int rotated, int primary, int connection)
 {
@@ -62,10 +84,10 @@ static void print_dpi_randr(const char *name,
 		connection_string,
 		w, h,
 		mmw, mmh);
-	print_dpi_common(w, h, mmw, mmh);
+	return print_dpi_common(w, h, mmw, mmh);
 }
 
-static void print_dpi_monitor(const char *name, int width, int height, int mmw, int mmh, Bool prim, Bool automatic)
+static int print_dpi_monitor(const char *name, int width, int height, int mmw, int mmh, Bool prim, Bool automatic)
 {
 	/* TODO FIXME the monitor interface does not provide a way to tell if
 	 * the monitor is rotated or not. A possible ways to determine this
@@ -84,7 +106,6 @@ static void print_dpi_monitor(const char *name, int width, int height, int mmw, 
 		mmh = t;
 	}
 
-#define STRMAX 255
 	char info[STRMAX+1] = {0};
 	snprintf(info, STRMAX, " (%s%s%s)",
 		(rotated ? "R" : "U"),
@@ -94,13 +115,19 @@ static void print_dpi_monitor(const char *name, int width, int height, int mmw, 
 	printf("\t\t%s%s: %dx%d pixels, %dx%d mm: ",
 		name ? name : "<error>",
 		info, width, height, mmw, mmh);
-	print_dpi_common(width, height, mmw, mmh);
+	return print_dpi_common(width, height, mmw, mmh);
 }
 
 
-static void do_xlib_dpi(Display *disp)
+static int do_xlib_dpi(Display *disp)
 {
 	int num_screens = ScreenCount(disp);
+
+	reference_dpi = calloc(num_screens, sizeof(*reference_dpi));
+	noutput = calloc(num_screens, sizeof(*noutput));
+	nmon = calloc(num_screens, sizeof(*nmon));
+	output_dpi = calloc(num_screens, sizeof(*output_dpi));
+	monitor_dpi = calloc(num_screens, sizeof(*monitor_dpi));
 
 	int scratch = 0;
 	const Bool has_randr = XRRQueryExtension(disp, &scratch, &scratch);
@@ -126,7 +153,7 @@ static void do_xlib_dpi(Display *disp)
 			int mmw = WidthMMOfScreen(screen);
 			int mmh = HeightMMOfScreen(screen);
 
-			print_dpi_screen(i, width, height, mmw, mmh);
+			reference_dpi[i] = print_dpi_screen(i, width, height, mmw, mmh);
 		}
 
 		if (!has_randr)
@@ -144,9 +171,18 @@ static void do_xlib_dpi(Display *disp)
 		if (has_randr_primary)
 			primary = XRRGetOutputPrimary(disp, root_win);
 
+		output_dpi[i] = calloc(
+			(noutput[i] = xrr_res->noutput),
+			sizeof(**output_dpi));
+
 		/* iterate over all outputs, and compute the DPIs from the connected CRTC */
 		for (int o = 0; o < xrr_res->noutput; ++o) {
 			XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, xrr_res->outputs[o]);
+
+			/* Use negative dpi to mark the output as disconnected --will be overwritten
+			 * if it turns out to be connected. An output with negative dpi will
+			 * be skipped when printing scaling factors */
+			output_dpi[i][o].dpi = -1;
 
 			if (rro->crtc) {
 				XRRCrtcInfo *rrc = XRRGetCrtcInfo(disp, xrr_res, rro->crtc);
@@ -160,7 +196,8 @@ static void do_xlib_dpi(Display *disp)
 				unsigned long mmw = rotated ? rro->mm_height : rro->mm_width;
 				unsigned long mmh = rotated ? rro->mm_width : rro->mm_height;
 
-				print_dpi_randr(rro->name, mmw, mmh, w, h,
+				strncpy(output_dpi[i][o].name, rro->name, STRMAX);
+				output_dpi[i][o].dpi = print_dpi_randr(rro->name, mmw, mmh, w, h,
 					rotated, xrr_res->outputs[o] == primary,
 					rro->connection);
 
@@ -172,22 +209,23 @@ static void do_xlib_dpi(Display *disp)
 
 		/* Monitors were introduced in RANDR 1.5 */
 		if (has_randr_monitor) {
-			int nmon = 0;
-			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, &nmon);
-			if (nmon > 0) {
+			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, nmon + i);
+			if (nmon[i] > 0) {
 				puts("\tMonitors:");
+				monitor_dpi[i] = calloc(nmon[i], sizeof(**monitor_dpi));
+
 				XRRMonitorInfo *mon = monitors;
-				while (nmon-- > 0) {
+				for (int m = 0; m < nmon[i]; ++m, ++mon) {
 					/* Note that width/height follow the monitor rotation,
 					 * but mwidth/mheight don't!
 					 */
 					char *name = XGetAtomName(disp, mon->name);
-					print_dpi_monitor(name,
+					strncpy(monitor_dpi[i][m].name, name, STRMAX);
+					monitor_dpi[i][m].dpi = print_dpi_monitor(name,
 						mon->width, mon->height,
 						mon->mwidth, mon->mheight,
 						mon->primary, mon->automatic);
 					free(name);
-					++mon;
 				}
 			}
 			XRRFreeMonitors(monitors);
@@ -221,10 +259,16 @@ static void do_xlib_dpi(Display *disp)
 		/* Xft.dpi */
 		const char *dpi = XGetDefault(disp, "Xft", "dpi");
 		if (dpi) {
+			float xft_dpi;
 			puts("X resources:");
 			printf("\tXft.dpi: %s\n", dpi);
+			xft_dpi = strtof(dpi, NULL);
+			/* Override core DPI only if valid */
+			if (xft_dpi > 0)
+				reference_dpi[i] = xft_dpi;
 		}
 	}
+	return num_screens;
 }
 
 static int xlib_dpi(void)
@@ -237,11 +281,11 @@ static int xlib_dpi(void)
 		return 1;
 	}
 
-	do_xlib_dpi(disp);
+	int num_screens = do_xlib_dpi(disp);
 
 	XCloseDisplay(disp);
 
-	return 0;
+	return num_screens;
 }
 
 #if WITH_XCB
@@ -649,6 +693,91 @@ static int xcb_dpi(void)
 }
 #endif
 
+struct scaling_factor
+{
+	int min;
+	float actual;
+	int round;
+	int max;
+};
+
+static inline
+struct scaling_factor calc_scaling(float actual)
+{
+	struct scaling_factor ret = {
+		.min = (int)floor(actual),
+		.actual = actual,
+		.round = (int)round(actual),
+		.max = (int)ceil(actual)
+	};
+
+	if (ret.min < 1) ret.min = 1;
+	if (ret.round < 1) ret.round = 1;
+	if (ret.max < 1) ret.max = 1;
+
+	return ret;
+}
+
+static inline
+void print_scaling_factor(struct scaling_factor scaling)
+{
+	printf("%d %.2g %d %d",
+		scaling.min, scaling.actual, scaling.round, scaling.max);
+}
+
+void print_scaling_factors(int num_screens)
+{
+	for (int i = 0; i < num_screens; ++i) {
+		printf("Screen %d:\n", i);
+		float reference = reference_dpi[i]/96.0f;
+		printf("\treference scaling: ");
+		print_scaling_factor(calc_scaling(reference));
+		puts("");
+
+		if (nmon[i]) {
+			/* TODO FIXME we assume that the first enumerated monitor is the primary one,
+			 * we should keep its index around */
+			int primary_dpi = monitor_dpi[i][0].dpi;
+			printf("\tmonitors:\n");
+			for (int m = 0; m < nmon[i]; ++m) {
+				printf("\t\t%s:\n", monitor_dpi[i][m].name);
+				int dpi = monitor_dpi[i][m].dpi;
+				float native = dpi/96.0f;
+				float rated = (reference*dpi)/primary_dpi;
+				printf("\t\t\tnative: ");
+				print_scaling_factor(calc_scaling(native));
+				printf("\n\t\t\tprorated: ");
+				print_scaling_factor(calc_scaling(rated));
+				puts("");
+			}
+		}
+		free(monitor_dpi[i]);
+
+		if (noutput[i]) {
+			/* TODO FIXME we assume that the first enumerated output is the primary one,
+			 * we should keep its index around */
+			int primary_dpi = output_dpi[i][0].dpi;
+			printf("\toutputs:\n");
+			for (int o = 0; o < noutput[i]; ++o) {
+				int dpi = output_dpi[i][o].dpi;
+				if (dpi < 0) continue; /* output is not connected */
+				printf("\t\t%s:\n", output_dpi[i][o].name);
+				float native = dpi/96.0f;
+				float rated = (reference*dpi)/primary_dpi;
+				printf("\t\t\tnative: ");
+				print_scaling_factor(calc_scaling(native));
+				printf("\n\t\t\tprorated: ");
+				print_scaling_factor(calc_scaling(rated));
+				puts("");
+			}
+		}
+		free(output_dpi[i]);
+	}
+	free(monitor_dpi);
+	free(output_dpi);
+	free(reference_dpi);
+}
+
 static const char* dpi_related_vars[] = {
 	"CLUTTER_SCALE",
 	"GDK_SCALE",
@@ -678,11 +807,15 @@ int main(int argc, char *argv[])
 
 	puts("*** Resolution and dot pitch information exposed by X11 ***");
 
-	xlib_dpi();
+	int num_screens = xlib_dpi();
 
 #if WITH_XCB
 	xcb_dpi();
 #endif
+
+	puts("*** Auto-computed per-output scaling ***");
+
+	print_scaling_factors(num_screens);
 
 	puts("*** Environment variables ***");
 

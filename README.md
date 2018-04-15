@@ -6,7 +6,20 @@ core protocol and the XRANDR extension is presented. Xinerama
 information (which lacks physical dimensions, and is thus not directly
 useful to determine output DPI) is also presented.
 
-To improve the usefulness of `xdpi` as a debugging tool, we also show
+Auto-computed per-monitor/per-output UI scaling factors are also shown,
+computed based on a reference 96 DPI. Each scaling factor is computed as a
+single-precision floating-point integer, and four values are shown:
+
+* the floor (largest integer no larger than),
+* the value itself,
+* the rounded value (closest integer),
+* and the ceiling (smallest integer no smaller than).
+
+For each monitor/output, both the native scaling factors (based on the
+reported DPI) and the prorated factors (which take into account the ratio of
+the core DPI to the primary output DPI) are shown.
+
+Finally, to improve the usefulness of `xdpi` as a debugging tool, we also show
 the content of the following known-relevant environment variables,
 if set:
 

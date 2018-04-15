@@ -105,8 +105,13 @@ static void do_xlib_dpi(Display *disp)
 	int scratch = 0;
 	const Bool has_randr = XRRQueryExtension(disp, &scratch, &scratch);
 	int rr_major = 0, rr_minor = 0;
-	if (has_randr)
+	Bool has_randr_primary = False;
+	Bool has_randr_monitor = True;
+	if (has_randr) {
 		XRRQueryVersion(disp, &rr_major, &rr_minor);
+		has_randr_primary = (rr_major > 1 || rr_minor >= 3);
+		has_randr_monitor = (rr_major > 1 || rr_minor >= 5);
+	}
 
 	/* Iterate over all screens, and show X11 and XRandR information */
 	for (int i = 0 ; i < num_screens ; ++i) {
@@ -136,7 +141,7 @@ static void do_xlib_dpi(Display *disp)
 		printf("\tXRandR (%d.%d):\n", rr_major, rr_minor);
 
 		RROutput primary = -1;
-		if (rr_major > 1 || rr_minor >= 3)
+		if (has_randr_primary)
 			primary = XRRGetOutputPrimary(disp, root_win);
 
 		/* iterate over all outputs, and compute the DPIs from the connected CRTC */
@@ -166,7 +171,7 @@ static void do_xlib_dpi(Display *disp)
 		XRRFreeScreenResources(xrr_res);
 
 		/* Monitors were introduced in RANDR 1.5 */
-		if (rr_major > 1 || rr_minor >= 5) {
+		if (has_randr_monitor) {
 			int nmon = 0;
 			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, &nmon);
 			if (nmon > 0) {

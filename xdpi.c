@@ -54,11 +54,11 @@ static void print_dpi_randr(const char *name,
 		"connected" : (connection == RR_Disconnected ?
 			"disconnected" : (connection == RR_UnknownConnection ?
 				"unknown" : "?")));
-	printf("\t\t%s: %dx%d pixels, (%s, %s) %lux%lu mm: ",
+	printf("\t\t%s (%s, %s): %dx%d pixels, %lux%lu mm: ",
 		name ? name : "<error>",
-		w, h,
 		(rotated ? "R" : "U"),
 		connection_string,
+		w, h,
 		mmw, mmh);
 	print_dpi_common(w, h, mmw, mmh);
 }

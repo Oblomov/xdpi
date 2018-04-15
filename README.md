@@ -3,7 +3,8 @@
 This is a small C program that retrieves all information about DPI (dots
 per inch) of the available displays in X11. Information from both the
 core protocol and the XRANDR extension is presented. Xinerama
-information (which lacks physical dimensions, though) is also presented.
+information (which lacks physical dimensions, and is thus not directly
+useful to determine output DPI) is also presented.
 
 To improve the usefulness of `xdpi` as a debugging tool, we also show
 the content of the following known-relevant environment variables,

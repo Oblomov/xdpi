@@ -5,7 +5,23 @@ per inch) of the available displays in X11. Information from both the
 core protocol and the XRANDR extension is presented. Xinerama
 information (which lacks physical dimensions, though) is also presented.
 
-Licensed under the Mozilla Public License, version 2. See LICENSE.txt.
+To improve the usefulness of `xdpi` as a debugging tool, we also show
+the content of the following known-relevant environment variables,
+if set:
+
+* `CLUTTER_SCALE`
+* `GDK_SCALE`
+* `GDK_DPI_SCALE`
+* `QT_AUTO_SCREEN_SCALE_FACTOR`
+* `QT_SCALE_FACTOR`
+* `QT_SCREEN_SCALE_FACTORS`
+* `QT_DEVICE_PIXEL_RATIO`
+
+<!-- TODO link the relevant variables to the pages
+     explaining their purpose -->
+
+All of the code is licensed under the Mozilla Public License, version 2.
+See `LICENSE.txt` for details.
 
 ## Running
 

@@ -649,6 +649,27 @@ static int xcb_dpi(void)
 }
 #endif
 
+static const char* dpi_related_vars[] = {
+	"CLUTTER_SCALE",
+	"GDK_SCALE",
+	"GDK_DPI_SCALE",
+	"QT_AUTO_SCREEN_SCALE_FACTOR",
+	"QT_SCALE_FACTOR",
+	"QT_SCREEN_SCALE_FACTORS",
+	"QT_DEVICE_PIXEL_RATIO", /* obsolete */
+	NULL
+};
+
+void print_relevant_env()
+{
+	for (const char * const*var = dpi_related_vars; *var; ++var) {
+		char *v = getenv(*var);
+		if (v)
+			printf("%s=%s\n", *var, v);
+	}
+}
+
+
 int main(int argc, char *argv[])
 {
 	/* TODO support CLI options for help or output format selection */
@@ -662,6 +683,10 @@ int main(int argc, char *argv[])
 #if WITH_XCB
 	xcb_dpi();
 #endif
+
+	puts("*** Environment variables ***");
+
+	print_relevant_env();
 
 	puts("*** Done ***");
 }

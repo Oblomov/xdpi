@@ -278,7 +278,7 @@ static int xlib_dpi(void)
 	Display *disp = XOpenDisplay(getenv("DISPLAY"));
 	if (!disp) {
 		fputs("Could not open X display\n", stderr);
-		return 1;
+		return 0;
 	}
 
 	int num_screens = do_xlib_dpi(disp);
@@ -677,6 +677,9 @@ cleanup:
 	free(xine_reply);
 }
 
+/* TODO FIXME this returns an error value, while xlib_dpi returns the number of screens
+ * (for use by print_scaling_factors)
+ */
 static int xcb_dpi(void)
 {
 	puts("** xcb interfaces");

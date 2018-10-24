@@ -348,7 +348,7 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	if (randr_active) {
 		rr_ver_rep = xcb_randr_query_version_reply(conn, rr_ver_cookie, &err);
 		if (err) {
-			fprintf(stderr, "error getting Xinerama status -- %d\n", err->error_code);
+			fprintf(stderr, "error querying RANDR version -- %d\n", err->error_code);
 			free(err);
 			randr_active = 0;
 		} else {

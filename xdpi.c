@@ -90,13 +90,18 @@ static int print_dpi_randr(const char *name,
 static int print_dpi_monitor(const char *name, int width, int height, int mmw, int mmh, Bool prim, Bool automatic)
 {
 	/* TODO FIXME the monitor interface does not provide a way to tell if
-	 * the monitor is rotated or not. A possible ways to determine this
+	 * the monitor is rotated or not. A possible way to determine this
 	 * would be to fetch the associated outputs and check if any/all are
 	 * rotated. This requires multiple roundtrips, and one is left to
 	 * wonder what should be done if one of the outputs is rotated
 	 * and the other is not. Pending further clarifications on the matter,
 	 * we determine if the output is rotated or not simply by comparing
-	 * the relative magnitude of width/height with that of mmw/mmh.
+	 * the relative magnitude of width/height with that of mmw/mmh;
+	 * the only cases in which this should fail is for outputs that
+	 * are either massively anamorphic, or report completely random
+	 * numbers (rather than bogus but “reasonable” numbers such
+	 * as 16mm and 9mm for a projector with 16:9 aspect ratio) as
+	 * physical dimensions.
 	 */
 
 	const int rotated = ((width > height) != (mmw > mmh));

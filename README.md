@@ -4,11 +4,15 @@ This is a small C program that retrieves all information about DPI (dots
 per inch) of the available displays in X11. Information from both the
 core protocol and the XRANDR extension is presented. Xinerama
 information (which lacks physical dimensions, and is thus not directly
-useful to determine output DPI) is also presented.
+useful to determine output DPI) is also presented. If an XSETTINGS
+daemon is found, the reported (scaled and raw) Xft/DPI value is presented.
 
-Auto-computed per-monitor/per-output UI scaling factors are also shown,
-computed based on a reference 96 DPI. Each scaling factor is computed as a
-single-precision floating-point integer, and four values are shown:
+(Limitation: XSETTINGS is currently only show for Xlib, not xcb.)
+
+From the retrieved information, `xdpi` will also compute (and present)
+“proposed” per-monitor/per-output UI scaling factors, assuming a reference 96
+DPI. Each scaling factor is computed as a single-precision floating-point
+integer, and four values are shown:
 
 * the floor (largest integer no larger than),
 * the value itself,

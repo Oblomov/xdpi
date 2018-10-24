@@ -123,6 +123,85 @@ static int print_dpi_monitor(const char *name, int width, int height, int mmw, i
 	return print_dpi_common(width, height, mmw, mmh);
 }
 
+/*
+ * XSETTINGS support
+ */
+
+static const char *xsettings_settings = "_XSETTINGS_SETTINGS";
+static const size_t xsettings_max_name_len = 20;
+static const size_t xsettings_name_offset = 21;
+
+#define XSETTINGS_TYPE_INT 0
+#define XSETTINGS_TYPE_STRING 1
+#define XSETTINGS_TYPE_COLOR 2
+
+/* Pad up to multiple of 4 bytes */
+/* A binary number is a multiple of 4 if its two lowest bits are 0,
+ * so you can always get a multiple of 4 by masking the two lowest bits.
+ * But we want to round up, not down, so we do this after adding 3
+ * (which ensures we don't actually add anything if we are already
+ * on a multiple of 4)
+ */
+int pad_to_int32(int n) {
+	return (n + 3) & (~3);
+}
+
+Bool xsettings_find_xft_dpi(unsigned char *buffer, unsigned int scrnum, Bool printed_xset_hdr)
+{
+	/* TODO check byte order */
+	uint32_t num_settings = ((uint32_t*)buffer)[4];
+
+	/* Skip rest of header */
+	buffer += 12;
+
+	while (num_settings-- > 0) {
+		int type = buffer[0];
+		int name_len = *(uint16_t*)(buffer + 2);
+		char *name = malloc(name_len+1);
+
+		memcpy(name, buffer + 4, name_len);
+		name[name_len] = '\0';
+		/* Skip header, name, and serial to actual data */
+		buffer += 4 + pad_to_int32(name_len) + 4;
+
+		/* Check the name now */
+		if (strcmp(name, "Xft/DPI")) {
+			/* Not Xft/DPI, skip and continue */
+			free(name);
+			switch (type) {
+			case XSETTINGS_TYPE_INT:
+				buffer += 4;
+				break;
+			case XSETTINGS_TYPE_COLOR:
+				buffer += 8;
+				break;
+			case XSETTINGS_TYPE_STRING:
+				name_len = *(uint32_t*)buffer;
+				buffer += 4 + pad_to_int32(name_len);
+				break;
+			}
+			continue;
+		} else {
+			/* Oh, found Xft/DPI */
+			if (!printed_xset_hdr) {
+				puts("XSETTINGS:");
+				printed_xset_hdr = True;
+			}
+			if (type != XSETTINGS_TYPE_INT) {
+				fprintf(stderr, "\tScreen %d: Xft/DPI has wrong type\n", scrnum);
+			} else {
+				int xft_dpi = *(uint32_t*)buffer;
+				printf("\tScreen %d:\n\t\tXft/DPI: %8g\t(%d/1024)\n", scrnum, xft_dpi/1024.0, xft_dpi);
+			}
+			break;
+		}
+	}
+	return printed_xset_hdr;
+}
+
+/*
+ * Xlib DPI info extraction
+ */
 
 static int do_xlib_dpi(Display *disp)
 {
@@ -273,6 +352,88 @@ static int do_xlib_dpi(Display *disp)
 				reference_dpi[i] = xft_dpi;
 		}
 	}
+
+	/* XSETTINGS */
+
+	{
+		char *xsettings_names = calloc(
+			xsettings_name_offset*(num_screens + 1),
+			sizeof(char));
+		char **xsettings_name = calloc(num_screens + 1, sizeof(char*));
+		Atom *xsettings_atom = calloc(num_screens + 1, sizeof(Atom));
+		for (int i = 0; i < num_screens; ++i) {
+			xsettings_name[i] = xsettings_names + i*xsettings_name_offset;
+			snprintf(xsettings_name[i], xsettings_max_name_len,
+				"_XSETTINGS_S%d", i);
+		}
+		xsettings_name[num_screens] = xsettings_names + num_screens*xsettings_name_offset;
+		memcpy(xsettings_name[num_screens], xsettings_settings, xsettings_name_offset);
+		XInternAtoms(disp, xsettings_name, num_screens + 1, True, xsettings_atom);
+
+		/* If all Atoms are None, XSETTINGS was never used on this server */
+		Bool ever_xset = False;
+		/* Did we print the XSETTINGS header yet? */
+		Bool printed_xset_hdr = False;
+
+		for (int i = 0; i < num_screens + 1; ++i) {
+			if (xsettings_atom[i] != None) {
+				ever_xset = True;
+				break;
+			}
+		}
+
+		if (ever_xset) for (int i = 0; i < num_screens; ++i) {
+			if (xsettings_atom[i] == None)
+				continue;
+			/* Settings are found in the _XSETTINGS_SETTINGS property
+			 * of the window owning the _XSETTINGS_S# selection, so
+			 * first get the owner
+			 */
+			Window owner = XGetSelectionOwner(disp, xsettings_atom[i]);
+			if (owner == None)
+				continue;
+
+			/* Get the _XSETTINGS_SETTINGS property */
+			Atom prop_type;
+			int prop_format;
+			unsigned long nitems = 0;
+			unsigned long more_bytes = 0;
+			unsigned char *buffer = NULL;
+			int ret = XGetWindowProperty(disp, owner, xsettings_atom[num_screens],
+				0, 4096, False,
+				xsettings_atom[num_screens],
+				&prop_type, &prop_format, &nitems, &more_bytes, &buffer);
+
+			if (ret != Success) {
+				fprintf(stderr, "XSETTINGS/Screen %d: unable to get settings\n", i);
+				continue;
+			}
+			if (prop_format != 8) {
+				fprintf(stderr, "XSETTINGS/Screen %d: wrong settings format, expected %d, got %d\n", i, 8, prop_format);
+				continue;
+			}
+			if (more_bytes > 0) {
+				fprintf(stderr, "XSETTINGS/Screen %d: too many settings\n", i);
+				XFree(buffer);
+				continue;
+			}
+
+			if (nitems == 0)
+				continue; /* No settings, hence no Xft/DPI */
+
+			printed_xset_hdr = xsettings_find_xft_dpi(buffer, i, printed_xset_hdr);
+
+			XFree(buffer);
+
+
+		}
+
+		free(xsettings_atom);
+		free(xsettings_name);
+		free(xsettings_names);
+
+	}
+
 	return num_screens;
 }
 

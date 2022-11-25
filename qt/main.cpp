@@ -21,7 +21,9 @@ void dpiInfo(int argc, char *argv[])
 	cout << "Screens: " << screens.size() << "\n";
 
 	foreach(QScreen *screen, screens) {
-		cout << "\t" << screen->name().toStdString() << ":\n";
+		QRect geom = screen->geometry();
+		cout << "\t" << screen->name().toStdString() <<
+			" @ (" << geom.top() << "," << geom.left() << ") size (" << geom.width() << ", " << geom.height() << "):\n";
 		cout << "\t\tPhysical DPI: " << screen->physicalDotsPerInch() << "\n";
 		cout << "\t\t Logical DPI: " << screen->logicalDotsPerInch() << "\n";
 		cout << "\t\t pixel ratio: " << screen->devicePixelRatio() << "\n";

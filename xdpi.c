@@ -129,8 +129,8 @@ static int print_dpi_monitor(const char *name, int width, int height, int mmw, i
  */
 
 static const char *xsettings_settings = "_XSETTINGS_SETTINGS";
-static const size_t xsettings_max_name_len = 20;
-static const size_t xsettings_name_offset = 21;
+static const size_t xsettings_max_name_len = 32;
+static const size_t xsettings_name_offset = xsettings_max_name_len+1;
 
 #define XSETTINGS_TYPE_INT 0
 #define XSETTINGS_TYPE_STRING 1

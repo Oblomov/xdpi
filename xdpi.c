@@ -21,6 +21,12 @@
 #include <xcb/xcb_xrm.h>
 #endif
 
+void error(const char* msg)
+{
+	fprintf(stderr, "fatal: %s\n", msg);
+	exit(1);
+}
+
 /* The DPI reported by the core protocol, possibly with an Xft.dpi
  * override. One per screen.
  */
@@ -159,6 +165,7 @@ Bool xsettings_find_xft_dpi(unsigned char *buffer, unsigned int scrnum, Bool pri
 		int type = buffer[0];
 		int name_len = *(uint16_t*)(buffer + 2);
 		char *name = malloc(name_len+1);
+		if (!name) error("out of memory for Xft.dpi");
 
 		memcpy(name, buffer + 4, name_len);
 		name[name_len] = '\0';
@@ -167,8 +174,8 @@ Bool xsettings_find_xft_dpi(unsigned char *buffer, unsigned int scrnum, Bool pri
 
 		/* Check the name now */
 		if (strcmp(name, "Xft/DPI")) {
-			/* Not Xft/DPI, skip and continue */
 			free(name);
+			/* Not Xft/DPI, skip and continue */
 			switch (type) {
 			case XSETTINGS_TYPE_INT:
 				buffer += 4;
@@ -183,6 +190,7 @@ Bool xsettings_find_xft_dpi(unsigned char *buffer, unsigned int scrnum, Bool pri
 			}
 			continue;
 		} else {
+			free(name);
 			/* Oh, found Xft/DPI */
 			if (!printed_xset_hdr) {
 				puts("XSETTINGS:");
@@ -213,6 +221,9 @@ static int do_xlib_dpi(Display *disp)
 	nmon = calloc(num_screens, sizeof(*nmon));
 	output_dpi = calloc(num_screens, sizeof(*output_dpi));
 	monitor_dpi = calloc(num_screens, sizeof(*monitor_dpi));
+
+	if (!reference_dpi || !noutput || !nmon || !output_dpi || !monitor_dpi)
+		error("out of memory during Xlib DPI informaion retrieval");
 
 	int scratch = 0;
 	const Bool has_randr = XRRQueryExtension(disp, &scratch, &scratch);
@@ -259,10 +270,13 @@ static int do_xlib_dpi(Display *disp)
 		output_dpi[i] = calloc(
 			(noutput[i] = xrr_res->noutput),
 			sizeof(**output_dpi));
+		if (!output_dpi[i])
+			error("out of memory for output DPI");
 
 		/* iterate over all outputs, and compute the DPIs from the connected CRTC */
 		for (int o = 0; o < xrr_res->noutput; ++o) {
 			XRROutputInfo *rro = XRRGetOutputInfo(disp, xrr_res, xrr_res->outputs[o]);
+			if (!rro) error("XRRGetOutputInfo failed");
 
 			/* Use negative dpi to mark the output as disconnected --will be overwritten
 			 * if it turns out to be connected. An output with negative dpi will
@@ -271,6 +285,7 @@ static int do_xlib_dpi(Display *disp)
 
 			if (rro->crtc) {
 				XRRCrtcInfo *rrc = XRRGetCrtcInfo(disp, xrr_res, rro->crtc);
+				if (!rrc) error("XRRGetCrtcInfo failed");
 
 				unsigned int w = rrc->width;
 				unsigned int h = rrc->height;
@@ -295,9 +310,12 @@ static int do_xlib_dpi(Display *disp)
 		/* Monitors were introduced in RANDR 1.5 */
 		if (has_randr_monitor) {
 			XRRMonitorInfo *monitors = XRRGetMonitors(disp, root_win, True, nmon + i);
+			if (!monitors) error("XRRGetMonitors failed");
 			if (nmon[i] > 0) {
 				puts("\tMonitors:");
 				monitor_dpi[i] = calloc(nmon[i], sizeof(**monitor_dpi));
+				if (!monitor_dpi[i])
+					error("out of memory for monitor DPI");
 
 				XRRMonitorInfo *mon = monitors;
 				for (int m = 0; m < nmon[i]; ++m, ++mon) {
@@ -362,6 +380,9 @@ static int do_xlib_dpi(Display *disp)
 			sizeof(char));
 		char **xsettings_name = calloc(num_screens + 1, sizeof(char*));
 		Atom *xsettings_atom = calloc(num_screens + 1, sizeof(Atom));
+		if (!xsettings_names || !xsettings_name || !xsettings_atom)
+			error("out of memory for XSETTINGS");
+
 		for (int i = 0; i < num_screens; ++i) {
 			xsettings_name[i] = xsettings_names + i*xsettings_name_offset;
 			snprintf(xsettings_name[i], xsettings_max_name_len,
@@ -476,6 +497,8 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 	 */
 	xcb_screen_t *screen_data =
 		malloc(iter.rem*sizeof(*screen_data));
+	if (!screen_data)
+		error("out of memory during XCB DPI informaion retrieval");
 
 	xcb_xinerama_query_screens_cookie_t xine_cookie;
 	xcb_xinerama_query_screens_reply_t *xine_reply = NULL;
@@ -626,67 +649,68 @@ static void do_xcb_dpi(xcb_connection_t *conn)
 		rr_output[i] = xcb_randr_get_screen_resources_outputs(rr_res[i]);
 
 		/* Cookies for the requests */
-		crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
-		output_cookie = calloc(num_outputs, sizeof(xcb_randr_get_output_info_cookie_t));
+		/* If any of the replies return errors, we break out early from this
+		 * do {} while (0) and then break out of the for cycle.
+		 * This allows us to unify memory freeing.
+		 */
+		do {
+			crtc_cookie = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_cookie_t));
+			output_cookie = calloc(num_outputs, sizeof(xcb_randr_get_output_info_cookie_t));
 
-		if (!crtc_cookie || !output_cookie) {
-			fputs("could not allocate memory for RANDR request cookies\n", stderr);
-			break;
-		}
+			if (!crtc_cookie || !output_cookie)
+				error("could not allocate memory for RANDR request cookies");
 
-		/* CRTC requests */
-		for (j = 0; j < num_crtcs; ++j)
-			crtc_cookie[j] = xcb_randr_get_crtc_info(conn, rr_crtc[i][j],  0);
+			/* CRTC requests */
+			for (j = 0; j < num_crtcs; ++j)
+				crtc_cookie[j] = xcb_randr_get_crtc_info(conn, rr_crtc[i][j],  0);
 
-		/* Output requests */
-		for (j = 0; j < num_outputs; ++j)
-			output_cookie[j] = xcb_randr_get_output_info(conn, rr_output[i][j],  0);
+			/* Output requests */
+			for (j = 0; j < num_outputs; ++j)
+				output_cookie[j] = xcb_randr_get_output_info(conn, rr_output[i][j],  0);
 
-		/* Room for the replies */
-		rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
-		rr_out[i] = calloc(num_outputs, sizeof(xcb_randr_get_output_info_reply_t*));
+			/* Room for the replies */
+			rr_crtc_info[i] = calloc(num_crtcs, sizeof(xcb_randr_get_crtc_info_reply_t*));
+			rr_out[i] = calloc(num_outputs, sizeof(xcb_randr_get_output_info_reply_t*));
 
-		if (!rr_crtc_info[i] || !rr_out[i]) {
-			fputs("could not allocate memory for RANDR data\n", stderr);
-			break;
-		}
+			if (!rr_crtc_info[i] || !rr_out[i])
+				error("could not allocate memory for RANDR data");
 
-		/* Actually get the replies. */
-		for (j = 0; j < num_crtcs; ++j) {
-			rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], &err);
-			if (err) {
-				fprintf(stderr, "error getting info for CRTC %d on screen %d -- %d\n", j, i,
-					err->error_code);
-				free(err);
-				err = NULL;
-				continue;
+			/* Actually get the replies. */
+			for (j = 0; j < num_crtcs; ++j) {
+				rr_crtc_info[i][j] = xcb_randr_get_crtc_info_reply(conn, crtc_cookie[j], &err);
+				if (err) {
+					fprintf(stderr, "error getting info for CRTC %d on screen %d -- %d\n", j, i,
+						err->error_code);
+					break;
+				}
 			}
-		}
 
-		for (j = 0; j < num_outputs; ++j) {
-			rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], &err);
-			if (err) {
-				fprintf(stderr, "error getting info for output %d on screen %d -- %d\n", j, i,
-					err->error_code);
-				free(err);
-				err = NULL;
-				continue;
+			for (j = 0; j < num_outputs; ++j) {
+				rr_out[i][j] = xcb_randr_get_output_info_reply(conn, output_cookie[j], &err);
+				if (err) {
+					fprintf(stderr, "error getting info for output %d on screen %d -- %d\n", j, i,
+						err->error_code);
+					break;
+				}
 			}
-		}
 
-		if (has_randr_monitors) {
-			rr_mon[i] = xcb_randr_get_monitors_reply(conn, rr_mon_cookie[i], &err);
-			if (err) {
-				fprintf(stderr, "error getting monitors list on screen %d -- %d\n", i,
-					err->error_code);
-				free(err);
-				err = NULL;
-				continue;
+			if (has_randr_monitors) {
+				rr_mon[i] = xcb_randr_get_monitors_reply(conn, rr_mon_cookie[i], &err);
+				if (err) {
+					fprintf(stderr, "error getting monitors list on screen %d -- %d\n", i,
+						err->error_code);
+					break;
+				}
 			}
-		}
+		} while (0);
 
 		free(output_cookie);
 		free(crtc_cookie);
+		if (err) {
+			free(err);
+			err = NULL;
+			break;
+		}
 	}
 
 	/* Xinerama */
@@ -959,7 +983,7 @@ static const char* dpi_related_vars[] = {
 	NULL
 };
 
-void print_relevant_env()
+void print_relevant_env(void)
 {
 	for (const char * const*var = dpi_related_vars; *var; ++var) {
 		char *v = getenv(*var);

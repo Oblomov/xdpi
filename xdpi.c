@@ -43,19 +43,19 @@ struct named_dpi **monitor_dpi;
 
 static int print_dpi_common(int w, int h, int mmw, int mmh)
 {
-	double pitch = sqrt(mmw*mmw+mmh*mmh)/sqrt(w*w+h*h);
+	double pitch = hypot(mmw, mmh)/hypot(w, h);
 
 	int xdpi = 0, xdpcm = 0;
 	int ydpi = 0, ydpcm = 0;
 
 	if (mmw) {
 		xdpi = (int)round(w*25.4/mmw);
-		xdpcm = (int)round(w*10/mmw);
+		xdpcm = (int)round(w*10.0/mmw);
 	}
 
 	if (mmh) {
 		ydpi = (int)round(h*25.4/mmh);
-		ydpcm = (int)round(h*10/mmh);
+		ydpcm = (int)round(h*10.0/mmh);
 	}
 
 	printf("%dx%d dpi, %dx%d dpcm, dot pitch %.2gmm\n",

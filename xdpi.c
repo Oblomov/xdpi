@@ -156,7 +156,7 @@ int pad_to_int32(int n) {
 Bool xsettings_find_xft_dpi(unsigned char *buffer, unsigned int scrnum, Bool printed_xset_hdr)
 {
 	/* TODO check byte order */
-	uint32_t num_settings = ((uint32_t*)buffer)[4];
+	uint32_t num_settings = ((uint32_t*)buffer)[2];
 
 	/* Skip rest of header */
 	buffer += 12;
